@@ -1,0 +1,57 @@
+#!/bin/bash
+
+REALPATH=$(readlink -f $0)
+BINDIR=$(dirname $REALPATH)
+BASEDIR=$(dirname $BINDIR)
+LIBDIR=$BASEDIR/lib/huptime
+SOFILE=$LIBDIR/huptime.so
+
+# Defaults.
+HUPTIME_MODE=fork
+HUPTIME_UNLINK=
+HUPTIME_DEBUG=
+
+usage() {
+    echo "usage: $0 [--fork|--exec] [--unlink <file>] [--debug] [--] <command...>"
+    echo "  or   $0 --help"
+}
+
+while [ "$#" -ge "1" ]; do
+    if expr match "$1" "-.*" >/dev/null; then
+        # Parse options.
+        if [ "$1" == "--" ]; then
+            break
+        elif [ "${1#--}" == "exec" ]; then
+            HUPTIME_MODE=exec
+        elif [ "${1#--}" == "fork" ]; then
+            HUPTIME_MODE=fork
+        elif [ "${1#--}" == "debug" ]; then
+            HUPTIME_DEBUG=true
+        elif [ "${1#--}" == "unlink" ]; then
+            shift
+            HUPTIME_UNLINK=$1
+        elif [ "${1#--}" == "help" ]; then
+            usage
+            exit 0
+        else
+            usage
+            exit 1
+        fi
+        shift
+    else
+        # Non-option.
+        break
+    fi
+done
+
+if [ "$#" -eq "0" ]; then
+    usage
+    exit 0
+fi
+
+# Execute our new process.
+LD_PRELOAD=$SOFILE \
+    HUPTIME_DEBUG=$HUPTIME_DEBUG \
+    HUPTIME_UNLINK=$HUPTIME_UNLINK \
+    HUPTIME_MODE=$HUPTIME_MODE \
+    exec "$@"

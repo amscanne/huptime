@@ -1,0 +1,13 @@
+GLIBC_2.2.5 {
+    global:
+        bind;
+        listen;
+        accept;
+        accept4;
+        close;
+        fork;
+        dup;
+        dup2;
+        dup3;
+    local: *;
+};
