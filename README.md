@@ -33,7 +33,7 @@ unmodified applications.
 How do I use it?
 ----------------
 
-You simply need to run services via `huptime`.
+You simply need to run services via huptime.
 
 For example:
 
@@ -43,7 +43,7 @@ For example:
     # Zero downtime restart.
     killall -HUP myservice
 
-If there is a pidfile, you can remove that:
+If there is a pidfile, it can be reset on restart:
 
     # Start the service.
     huptime --unlink /var/run/myservice.pid /usr/bin/myservice &
@@ -51,7 +51,7 @@ If there is a pidfile, you can remove that:
     # Zero downtime restarts.
     killall -HUP myservice
 
-Or, if you need exec (needed for example, to run under upstart):
+Or, if you need exec (for example, to run under upstart):
 
     # Start the service and get the PID.
     huptime --exec /usr/bin/myservice &
@@ -71,6 +71,15 @@ Huptime should handle the following normal things:
 * Event-based and thread-based servers
 * Integration with supervisors (just use exec!)
 
+In terms of languages and frameworks, huptime should support nearly all
+programs that are *dynamically linked* against a *modern libc*.
+
+Most modern dynamic languages (python, ruby, node, etc.) fall into this
+category. Most C/C++ programs also fall into this category. A unique exception
+is `go`, which invokves system calls directly and uses only static linking.
+(For the record, I am a big fan of this approach. However, both have their
+merits).
+
 How does it work?
 -----------------
 
@@ -80,6 +89,9 @@ It tracks open file descriptors by intercepting calls to `bind` and `accept`
 (among other things). When the program receives a `SIGHUP`, it will
 intelligently `exec` a new copy of the program *without* closing any bound
 sockets and without requiring any changes to the program.
+
+Note that this is not simply a restart, but may be a new version of the
+application, with config changes and code changes.
 
 When the new copy of the program tries to `bind` the same socket, we will
 silently replace it with the still-open socket from the previous version.
@@ -112,9 +124,23 @@ This may not work properly if requests are not bound in how long they will
 take. This may also lead to high response times for some clients during the
 restart. However, this approach will play well with supervisors.
 
+Limitations
+-----------
+
+Although the majority of programs will work, I'm sure that *all* will not.
+
+The exit is not done through the normal application path on restart. Although
+all file descriptors are closed, there may be application-level resources (or
+some system resources) that are not cleaned up as expected and may cause
+problems.
+
+The command line and environment cannot be changed between restarts. You can
+easily work around this issue by putting all configuration inside a file that
+is read on start-up (i.e. `myservice --config-file=/etc/myservice.cfg`).
+
 What's up with the name?
 ------------------------
 
 It's clever! Services are often reloaded using `SIGHUP`. The point of this tool
-is to maximize uptime by enabling zero-downtime restarts via `SIGHUP`. Hence,
-`huptime`! It's your high availabilibuddy!
+is to maximize uptime by enabling zero-downtime restarts via `SIGHUP`. It's
+your high availabilibuddy!
