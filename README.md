@@ -93,6 +93,24 @@ is `go`, which invokves system calls directly and uses only static linking.
 (For the record, I am a big fan of this approach. However, both have their
 merits).
 
+What else does it do?
+---------------------
+
+If you are running Linux 3.9+, then you can also easily enable pools of
+processes by starting your services with the `--multi` option. Again, this does
+not require any modification on your application.
+
+For example:
+
+    # Start the service (4 workers).
+    huptime --multi /usr/bin/myservice &
+    huptime --multi /usr/bin/myservice &
+    huptime --multi /usr/bin/myservice &
+    huptime --multi /usr/bin/myservice &
+
+    # Zero downtime restart of all.
+    killall -HUP myservice
+
 How does it work?
 -----------------
 

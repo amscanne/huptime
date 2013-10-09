@@ -8,11 +8,12 @@ SOFILE=$LIBDIR/huptime.so
 
 # Defaults.
 HUPTIME_MODE=fork
+HUPTIME_MULTI=false
 HUPTIME_UNLINK=
-HUPTIME_DEBUG=
+HUPTIME_DEBUG=false
 
 usage() {
-    echo "usage: $0 [--fork|--exec] [--unlink <file>] [--debug] [--] <command...>"
+    echo "usage: $0 [--fork|--exec] [--multi] [--unlink <file>] [--debug] [--] <command...>"
     echo "  or   $0 --help"
 }
 
@@ -25,6 +26,8 @@ while [ "$#" -ge "1" ]; do
             HUPTIME_MODE=exec
         elif [ "${1#--}" == "fork" ]; then
             HUPTIME_MODE=fork
+        elif [ "${1#--}" == "multi" ]; then
+            HUPTIME_MULTI=true
         elif [ "${1#--}" == "debug" ]; then
             HUPTIME_DEBUG=true
         elif [ "${1#--}" == "unlink" ]; then
@@ -53,5 +56,6 @@ fi
 LD_PRELOAD=$SOFILE \
     HUPTIME_DEBUG=$HUPTIME_DEBUG \
     HUPTIME_UNLINK=$HUPTIME_UNLINK \
+    HUPTIME_MULTI=$HUPTIME_MULTI \
     HUPTIME_MODE=$HUPTIME_MODE \
     exec "$@"

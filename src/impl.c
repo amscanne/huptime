@@ -14,6 +14,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 typedef enum 
 {
@@ -41,6 +43,9 @@ static exit_strategy_t exit_strategy = FORK;
 
 /* Files to unlink? */
 static char *to_unlink = NULL;
+
+/* Multi mode? */
+static bool_t multi_mode = FALSE;
 
 /* Whether or not our HUP handler will exit or restart. */
 static pid_t master_pid = (pid_t)-1;
@@ -338,6 +343,7 @@ void
 impl_init(void)
 {
     const char* mode_env = getenv("HUPTIME_MODE");
+    const char* multi_env = getenv("HUPTIME_MULTI");
     const char* debug_env = getenv("HUPTIME_DEBUG");
     const char* pipe_env = getenv("HUPTIME_PIPE");
 
@@ -359,17 +365,13 @@ impl_init(void)
     pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&mutex, &mutex_attr);
 
-    if( master_pid == (pid_t)-1 )
-    {
-        /* Save this pid as our master pid.
-         * This is done to handle processes that use
-         * process pools. We remember the master pid and
-         * will do the full fork()/exec() only when we are
-         * the master. Otherwise, we will simply shutdown
-         * gracefully, and all the master to restart. */
-        master_pid = getpid();
-        DEBUG("Master is %d.", master_pid);
-    }
+    /* Save this pid as our master pid.
+     * This is done to handle processes that use
+     * process pools. We remember the master pid and
+     * will do the full fork()/exec() only when we are
+     * the master. Otherwise, we will simply shutdown
+     * gracefully, and all the master to restart. */
+    master_pid = getpid();
 
     /* Grab our exit strategy. */
     if( mode_env != NULL && strlen(mode_env) > 0 )
@@ -397,6 +399,20 @@ impl_init(void)
     {
         DEBUG("Unlink is '%s'.", to_unlink);
     }
+
+    /* Check if we're in multi mode. */
+    if( multi_env != NULL && strlen(multi_env) > 0 )
+    {
+        multi_mode = !strcasecmp(multi_env, "true") ? TRUE: FALSE;
+    }
+#ifndef SO_REUSEPORT
+    if( multi_mode == TRUE )
+    {
+        fprintf(stderr, "Multi mode not supported.\n");
+        fprintf(stderr, "(Requires at least Linux 3.9 and recent headers).\n");
+        _exit(1);
+    } 
+#endif
 
     /* Check if we're a respawn. */
     if( pipe_env != NULL && strlen(pipe_env) > 0 )
@@ -684,6 +700,26 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
             return 0;
         }
     }
+
+#ifdef SO_REUSEPORT
+    /* Multi mode? Set socket options. */
+    if( multi_mode == TRUE )
+    {
+        int optval = 1;
+        if( setsockopt(sockfd,
+                       SOL_SOCKET,
+                       SO_REUSEPORT,
+                       &optval,
+                       sizeof(optval)) < 0 )
+        {
+            U();
+            DEBUG("Error enabling multi mode.");
+            return -1;
+        }
+
+        DEBUG("Multi mode enabled.");
+    }
+#endif
 
     /* Try a real bind. */
     info = alloc_info(BOUND);
