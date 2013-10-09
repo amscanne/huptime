@@ -14,8 +14,8 @@ an upgrade.
 In an ideal world, all applications would support a mechanism for doing
 zero-downtime restarts. The reality is, many standard frameworks make this
 difficult to do from the top down. For example, if you're using writing a
-python WSGI application, it may very painful and involve hacking standard
-libraries or monkey patching.
+python application using a WSGI framework, it may very painful and involve
+hacking libraries or monkey patching.
 
 Compound this with the fact that many applications consist of many different
 small components (written using different languages and frameworks), and you've
