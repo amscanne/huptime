@@ -89,7 +89,7 @@ programs that are *dynamically linked* against a *modern libc*.
 
 Most modern dynamic languages (python, ruby, node, etc.) fall into this
 category. Most C/C++ programs also fall into this category. A unique exception
-is `go`, which invokves system calls directly and uses only static linking.
+is `go`, which invokes system calls directly and uses only static linking.
 (For the record, I am a big fan of this approach. However, both have their
 merits).
 
