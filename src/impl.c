@@ -125,6 +125,7 @@ impl_exec(void)
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
+    sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_BLOCK, &set, NULL);
 
     /* Encode extra information.
@@ -520,9 +521,11 @@ impl_init(void)
      * to cover the race between program start and 
      * us installing the appropriate handlers. */
     signal(SIGHUP, sighandler);
+    signal(SIGUSR2, sighandler);
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
+    sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_UNBLOCK, &set, NULL);
     DEBUG("Installed signal handlers.");
 
