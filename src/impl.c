@@ -278,6 +278,16 @@ do_dup3(int fd, int fd2, int flags)
     L();
     info = fd_lookup(fd);
     info2 = fd_lookup(fd2);
+    if( info2 != NULL )
+    {
+        rval = info_close(fd2, info2);
+        if( rval < 0 )
+        {
+            U();
+            return rval;
+        }
+    }
+
     rval = libc.dup3(fd, fd2, flags);
     if( rval < 0 )
     {
@@ -285,10 +295,6 @@ do_dup3(int fd, int fd2, int flags)
         return rval;
     }
 
-    if( info2 != NULL )
-    {
-        info_close(fd2, info2);
-    }
     if( info != NULL )
     {
         inc_ref(info);
