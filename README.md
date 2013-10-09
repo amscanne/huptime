@@ -30,6 +30,19 @@ simpler way!
 Huptime attempts to make it very simple to achieve these restarts for simple,
 unmodified applications.
 
+How do I install it?
+--------------------
+
+Clone the repo:
+
+    git clone http://github.com/amscanne/huptime
+
+Install it:
+
+    cd huptime && sudo make install
+
+If people use it, I'll make distro packages.
+
 How do I use it?
 ----------------
 
