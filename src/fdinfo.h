@@ -137,7 +137,7 @@ dec_ref(fdinfo_t* info)
     }
 }
 
-fdinfo_t* info_decode(int fd, const char* data);
-const char* info_encode(int fd, fdinfo_t* info);
+int info_decode(int pipe, int *fd, fdinfo_t **info);
+int info_encode(int pipe, int fd, fdinfo_t *info);
 
 #endif

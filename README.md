@@ -2,7 +2,7 @@ High uptime
 ===========
 
 Huptime is a tool for achieving zero downtime restarts without the need to
-modify your program in any way. Sweet!
+modify your program in any way.
 
 Why?
 ----
@@ -17,6 +17,10 @@ difficult to do from the top down. For example, if you're using writing a
 python WSGI application, it may very painful and involve hacking standard
 libraries or monkey patching.
 
+Compound this with the fact that many applications consist of many different
+small components (written using different languages and frameworks), and you've
+got yourself a mess.
+
 Because of this complexity, one of first things people have to do is implement
 a custom load balancing tier and a complex upgrade process. Although this is
 important at a certain scale, it shouldn't be that hard for simple services.
@@ -29,7 +33,7 @@ unmodified applications.
 How do I use it?
 ----------------
 
-You simply need to run your services via `huptime`.
+You simply need to run services via `huptime`.
 
 For example:
 
@@ -47,7 +51,7 @@ If there is a pidfile, you can remove that:
     # Zero downtime restarts.
     killall -HUP myservice
 
-Or, if you use exec:
+Or, if you need exec (needed for example, to run under upstart):
 
     # Start the service and get the PID.
     huptime --exec /usr/bin/myservice &
@@ -59,7 +63,7 @@ Or, if you use exec:
 What does it support?
 ---------------------
 
-Huptime can handle the following normal things:
+Huptime should handle the following normal things:
 
 * Daemonization & pid files
 * Process pools
@@ -85,7 +89,7 @@ There are two fundamental modes of operation:
 * fork (default)
 
 If you use fork, then when the process receives a `SIGHUP`, then it will `fork`
-and `exec` a new copy of the application. This is more efficient, as new
+and `exec` a new copy of the application. This results in less downtime, as new
 requests can start being served immediately, while old requests are still being
 finished by the original program.
 
@@ -94,15 +98,15 @@ however, which depend on the `PID` of the application staying constant.
 
 This may also present issues for some applications that check pidfiles or
 contain internal mechanisms for preventing two copies of themselves from
-running. Huptime goes to some effort to prevent conflict (changing the cmdline,
-etc.) but it may still arise.
+running. Huptime goes to some effort to prevent conflict (allowing for unlink
+prior to executing the child), but it may still arise.
 
 * exec
 
 If you use exec, then when a process receives a `SIGHUP`, then it will begin
-queueing requests to the bound socket and wait until all outstanding requests
-are finished. Only when existing requests are finished will the program
-restart.
+queueing requests to the bound socket (in the kernel) and wait until all
+outstanding requests are finished. Only when existing requests are finished
+will the program restart.
 
 This may not work properly if requests are not bound in how long they will
 take. This may also lead to high response times for some clients during the
@@ -113,4 +117,4 @@ What's up with the name?
 
 It's clever! Services are often reloaded using `SIGHUP`. The point of this tool
 is to maximize uptime by enabling zero-downtime restarts via `SIGHUP`. Hence,
-`huptime`!
+`huptime`! It's your high availabilibuddy!

@@ -16,7 +16,7 @@
 #define INITIAL_BUF_SIZE 4096
 
 const char**
-filter_nul_sep(const char* filename, const char* neg_filter, int extra)
+read_nul_sep(const char* filename)
 {
     char *buf = NULL;
     char *newbuf = NULL;
@@ -82,14 +82,14 @@ filter_nul_sep(const char* filename, const char* neg_filter, int extra)
     }
 
     /* Allocate our strings. */
-    results = (char**)malloc(sizeof(char*)*(count+1+extra) + (buflen+1));
-    for( i = count; i < count + 1 + extra; i += 1 )
+    results = (char**)malloc(sizeof(char*)*(count+1) + (buflen+1));
+    for( i = count; i < count + 1; i += 1 )
     {
         results[i] = NULL;
     }
 
     /* Copy buffer in and reset the pointer. */
-    newbuf = ((char*)results) + sizeof(char*)*(count+1+extra);
+    newbuf = ((char*)results) + sizeof(char*)*(count+1);
     memcpy(newbuf, buf, buflen);
     newbuf[buflen] = '\0';
     free(buf);
@@ -98,11 +98,7 @@ filter_nul_sep(const char* filename, const char* neg_filter, int extra)
     count = 0;
     for( i = 0; i < buflen; )
     {
-        if( neg_filter == NULL ||
-            strncmp(&newbuf[i], neg_filter, strlen(neg_filter)) )
-        {
-            results[count++] = &newbuf[i];
-        }
+        results[count++] = &newbuf[i];
         for( ; i < buflen && newbuf[i] != '\0'; i += 1 );
         i += 1;
     }

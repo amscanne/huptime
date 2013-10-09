@@ -118,16 +118,6 @@ impl_exec(void)
 {
     DEBUG("Preparing for exec...");
 
-    /* This is not accidental. */
-    if( exit_strategy == FORK )
-    {
-        setenv("HUPTIME_MODE", "fork", 1);
-    }
-    else
-    {
-        setenv("HUPTIME_MODE", "exec", 1);
-    }
-
     /* Reset our signal masks.
      * We intentionally mask SIGHUP here so that
      * it can't be called prior to us installing
@@ -135,50 +125,85 @@ impl_exec(void)
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
-    sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_BLOCK, &set, NULL);
 
     /* Encode extra information.
+     *
      * This includes information about sockets which
      * are in the BOUND or SAVED state. Note that we
      * can't really do anything with these *now* as
      * there are real threads running rampant -- so
      * we encode things for the exec() and take care 
-     * of it post-exec(), where we know we're solo. */
-    int environ_len = 0;
-    for( environ_len = 0;
-         environ_copy[environ_len] != NULL;
-         environ_len += 1 );
-    for( int fd = 0; fd < fd_max(); fd += 1 )
+     * of it post-exec(), where we know we're solo.
+     *
+     * This information is encoded into a pipe which
+     * is passed as an extra environment variable into
+     * the next child. Although there is a limit on the
+     * amount of data that can be stuffed into a pipe,
+     * past Linux 2.6.11 (IIRC) this is 65K.
+     */
+    int pipes[2];
+    if( pipe(pipes) < 0 )
+    {
+        DEBUG("Unable to create pipes?");
+        _exit(1);
+    }
+
+    /* Stuff information into the pipe. */
+    for( int fd = 0; fd < fd_limit(); fd += 1 )
     {
         fdinfo_t *info = fd_lookup(fd);
-        if( info != NULL )
+        if( info != NULL &&
+           (info->type == BOUND || info->type == SAVED) )
         {
-            char env[128];
-            const char* data = NULL;
-
-            /* See if we encode something. */
-            data = info_encode(fd, info);
-            if( data == NULL )
+            if( info_encode(pipes[1], fd, info) < 0 )
             {
-                /* Nothing encoded. */
-                continue;
+                DEBUG("Error encoding fd %d: %s",
+                      fd, strerror(errno));
             }
+            else
+            {
+                DEBUG("Encoded fd %d (type %d).", fd, info->type);
+            }
+        }
+    }
+    libc.close(pipes[1]);
+    DEBUG("Finished encoding.");
 
-            /* Save as a special environment variable. */
-            snprintf(env, 128, "HUPTIME_FD_%d=%s", fd, data);
-            environ_copy[environ_len++] = strdup(env);
-            free((char*)data);
-            DEBUG("Encoded fd %d (type %d).", fd, info->type);
+    /* Prepare our environment variable. */
+    char pipe_env[32];
+    snprintf(pipe_env, 32, "HUPTIME_PIPE=%d", pipes[0]);
+
+    /* Mask the existing environment variable. */
+    char **environ = environ_copy;
+    int environ_len = 0;
+
+    for( environ_len = 0;
+         environ[environ_len] != NULL;
+         environ_len += 1 )
+    {
+        if( !strncmp("HUPTIME_PIPE=",
+                     environ[environ_len], 
+                     strlen("HUPTIME_PIPE=")) )
+        {
+            environ[environ_len] = pipe_env;
+            break;
         }
     }
 
-    /* Add in our enabled parameter. */
-    environ_copy[environ_len++] = strdup("HUPTIME_FD_ENABLED=true");
+    /* Do we need to extend the environment? */
+    if( environ[environ_len] == NULL )
+    {
+        char** new_environ = malloc(sizeof(char*) * (environ_len + 2));
+        memcpy(new_environ, environ, sizeof(char*) * (environ_len));
+        new_environ[environ_len] = pipe_env;
+        new_environ[environ_len + 1] = NULL;
+        environ = new_environ;
+    }
 
     /* Execute in the same environment, etc. */
     DEBUG("Doing exec()... bye!");
-    execve(exe_copy, args_copy, environ_copy);
+    execve(exe_copy, args_copy, environ);
 
     /* Bail. Should never reach here. */
     DEBUG("Things went horribly wrong!");
@@ -188,8 +213,6 @@ impl_exec(void)
 void
 impl_exit_check(void)
 {
-    DEBUG("Tracked connections is %d.", total_tracked);
-
     if( is_exiting == TRUE && total_tracked == 0 )
     {
         DEBUG("No active connections, finishing exit.");
@@ -233,9 +256,8 @@ info_close(int fd, fdinfo_t* info)
 
         case SAVED:
             /* Woah, their program is most likely either messed up,
-             * or it's going through and closing all file descriptors
-             * prior to a fork. Since descriptors are saved CLOEXEC,
-             * we're just going to ignore this request. */
+             * or it's going through and closing all descriptors
+             * prior to an exec. We're just going to ignore this. */
             break;
     }
 
@@ -284,7 +306,7 @@ do_dup2(int fd, int fd2)
 }
 
 static int
-do_close_checkopt(int fd, int check)
+do_close(int fd)
 {
     int rval = -1;
     fdinfo_t *info = NULL;
@@ -298,20 +320,11 @@ do_close_checkopt(int fd, int check)
     }
 
     rval = info_close(fd, info);
-    if( check )
-    {
-        impl_exit_check();
-    }
+    impl_exit_check();
     U();
 
     DEBUG("do_close(%d) => %d (with info)", fd, rval);
     return rval;
-}
-
-static int
-do_close(int fd)
-{
-    return do_close_checkopt(fd, 1);
 }
 
 void
@@ -319,7 +332,8 @@ impl_init(void)
 {
     const char* mode_env = getenv("HUPTIME_MODE");
     const char* debug_env = getenv("HUPTIME_DEBUG");
-    const char* enabled_env = getenv("HUPTIME_FD_ENABLED");
+    const char* pipe_env = getenv("HUPTIME_PIPE");
+
     if( debug_env != NULL && strlen(debug_env) > 0 )
     {
         debug_enabled = !strcasecmp(debug_env, "true") ? TRUE: FALSE;
@@ -337,33 +351,6 @@ impl_init(void)
     pthread_mutexattr_init(&mutex_attr);
     pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&mutex, &mutex_attr);
-
-    /* Check for a disabled child. */
-    if( enabled_env != NULL && !strcasecmp(enabled_env, "false") )
-    {
-        /* This is a random child process.
-         * They've probably run exec() on some external
-         * program and we want to be sure that we don't
-         * influence behavior beyond that program we're
-         * trying to control. */
-        impl.bind = libc.bind;
-        impl.listen = libc.listen;
-        impl.accept = libc.accept;
-        impl.accept4 = libc.accept4;
-        impl.close = libc.close;
-        impl.fork = libc.fork;
-        impl.dup = libc.dup;
-        impl.dup2 = libc.dup2;
-        impl.dup3 = libc.dup3;
-        return;
-    }
-    else
-    {
-        /* Disable accidental children.
-         * If an exec() is done under our own control,
-         * this will happen from impl_exec() below. */
-        setenv("HUPTIME_FD_ENABLED", "false", 1);
-    }
 
     if( master_pid == (pid_t)-1 )
     {
@@ -405,41 +392,46 @@ impl_init(void)
     }
 
     /* Check if we're a respawn. */
-    if( enabled_env != NULL && !strcasecmp(enabled_env, "true") )
+    if( pipe_env != NULL && strlen(pipe_env) > 0 )
     {
+        int fd = -1;
+        fdinfo_t *info = NULL;
+        int pipefd = strtol(pipe_env, NULL, 10);
+
         DEBUG("Loading all file descriptors.");
 
         /* Decode all passed information. */
-        for( int fd = 0; fd < fd_max(); fd += 1 )
+        while( !info_decode(pipefd, &fd, &info) )
         {
-            char envname[32];
-            const char* envdata = NULL;
+            fd_save(fd, info);
+            DEBUG("Decoded fd %d (type %d).", fd, info->type);
+            info = NULL;
+        }
+        if( info != NULL )
+        {
+            dec_ref(info);
+        }
 
-            /* Check the environment for a bound socket. */
-            snprintf(envname, 32, "HUPTIME_FD_%d", fd);
-            envdata = getenv(envname);
-            if( envdata != NULL )
+        /* Finished with the pipe. */
+        libc.close(pipefd);
+        unsetenv("HUPTIME_PIPE");
+        DEBUG("Finished decoding.");
+
+        /* Close all non-encoded descriptors. */
+        for( fd = 0; fd < fd_max(); fd += 1 )
+        {
+            info = fd_lookup(fd);
+            if( info == NULL )
             {
-                /* Decode the data. */
-                fdinfo_t *info = info_decode(fd, envdata);
-                if( info != NULL )
-                {
-                    DEBUG("Decoded fd %d (type %d).", fd, info->type);
-                    fd_save(fd, info);
-                    continue;
-                }
-            }
-            else
-            {
-                /* Nothing known. */
+                DEBUG("Closing fd %d.", fd);
                 libc.close(fd);
             }
         }
 
         /* Restore all given file descriptors. */
-        for( int fd = 0; fd < fd_limit(); fd += 1 )
+        for( fd = 0; fd < fd_limit(); fd += 1 )
         {
-            fdinfo_t *info = fd_lookup(fd);
+            info = fd_lookup(fd);
             if( info != NULL && info->type == SAVED )
             {
                 fdinfo_t *orig_info = fd_lookup(info->saved.fd);
@@ -447,7 +439,7 @@ impl_init(void)
                 {
                     /* Uh-oh, conflict. Move the original (best effort). */
                     do_dup(info->saved.fd);
-                    do_close_checkopt(info->saved.fd, 0);
+                    do_close(info->saved.fd);
                 }
 
                 /* Move the SAVED fd back. */
@@ -499,12 +491,12 @@ impl_init(void)
      * We also filter out the special variables above that were
      * used to pass in information about sockets that were bound. */
     free(environ_copy);
-    environ_copy = (char**)filter_nul_sep("/proc/self/environ", "HUPTIME_FD_", fd_max()+1);
+    environ_copy = (char**)read_nul_sep("/proc/self/environ");
     DEBUG("Saved environment.");
 
     /* Save the arguments. */
     free(args_copy);
-    args_copy = (char**)filter_nul_sep("/proc/self/cmdline", NULL, 0);
+    args_copy = (char**)read_nul_sep("/proc/self/cmdline");
     DEBUG("Saved args.");
 
     /* Save the cwd & exe. */
@@ -648,7 +640,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     fdinfo_t *info = NULL;
     int rval = -1;
 
-    DEBUG("Bind calling, searching for ghost...");
+    DEBUG("Bind called, searching for ghost...");
     L();
 
     /* See if this socket already exists. */
