@@ -9,7 +9,7 @@ Why?
 
 With continuous deployment, software can be updated dozens, hundreds or even
 thousands of times per day. It critical that service is not interrupted during
-an upgrade.
+upgrades.
 
 In an ideal world, all applications would support a mechanism for doing
 zero-downtime restarts. The reality is, many standard frameworks make this
@@ -76,7 +76,7 @@ Or, if you need exec (for example, to run under upstart):
 What does it support?
 ---------------------
 
-Huptime should handle the following normal things:
+Huptime should [+] handle the following normal things:
 
 * Daemonization & pid files
 * Process pools
@@ -92,6 +92,8 @@ category. Most C/C++ programs also fall into this category. A unique exception
 is `go`, which invokes system calls directly and uses only static linking.
 (For the record, I am a big fan of this approach. However, both have their
 merits).
+
+[+] Should. YMMV.
 
 What else does it do?
 ---------------------
@@ -110,6 +112,37 @@ For example:
 
     # Zero downtime restart of all.
     killall -HUP myservice
+
+Want a script that runs $N copies and handles restarts & exit?
+
+    pids="";
+
+    reload() {
+        for pid in $pids; do
+            kill -HUP $pid;
+        done
+    }
+
+    stop() {
+        for pid in $pids; do
+            kill -TERM $pid;
+        done
+    }
+
+    trap reload SIGHUP;
+    trap stop SIGTERM;
+    trap stop SIGINT;
+
+    count="0";
+    while [ "$count" -lt "$N" ]; do
+        huptime --multi /usr/bin/myservice &
+        pids="$pids $!";
+        count=$(($count + 1));
+    done
+
+    for pid in $pids; do
+        wait $pid;
+    done
 
 How does it work?
 -----------------
@@ -168,6 +201,11 @@ problems.
 The command line and environment cannot be changed between restarts. You can
 easily work around this issue by putting all configuration inside a file that
 is read on start-up (i.e. `myservice --config-file=/etc/myservice.cfg`).
+
+What's left to do?
+------------------
+
+Add tests and documentation. Currently this is a simple proof-of-concept.
 
 What's up with the name?
 ------------------------
