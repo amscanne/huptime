@@ -17,6 +17,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
+#include <sys/syscall.h>
+#include <poll.h>
 
 typedef enum 
 {
@@ -67,16 +70,24 @@ static bool_t debug_enabled = FALSE;
 /* Lock (for thread-safe fd tracking). */
 static pthread_mutex_t mutex;
 
-#define L() pthread_mutex_lock(&mutex)
-#define U() pthread_mutex_unlock(&mutex)
+#define L()                               \
+    do {                                  \
+        DEBUG("-wait- %d", __LINE__);     \
+        pthread_mutex_lock(&mutex);       \
+        DEBUG("-acquired- %d", __LINE__); \
+    } while(0)
+
+#define U()                              \
+    do {                                 \
+        DEBUG("-release- %d", __LINE__); \
+        pthread_mutex_unlock(&mutex);    \
+    } while(0)
 
 /* Our core signal handlers. */
 static void* impl_restart_thread(void*);
 void
 sighandler(int signo)
 {
-    DEBUG("SIGNAL CAUGHT.");
-
     /* Fire off a restart thread.
      * We have to do this in a separate thread, because
      * we have no guarantees about which thread has been
@@ -85,6 +96,7 @@ sighandler(int signo)
      * section (i.e. locks held) we have no choice but to
      * fire the restart asycnhronously so that it too can
      * grab locks appropriately. */
+    DEBUG("Restart caught.");
     pthread_t thread;
     pthread_attr_t thread_attr;
     pthread_attr_init(&thread_attr);
@@ -97,6 +109,8 @@ do_dup(int fd)
 {
     int rval = -1;
     fdinfo_t *info = NULL;
+
+    DEBUG("do_dup(%d, ...) ...", fd);
     L();
     info = fd_lookup(fd);
     if( info == NULL )
@@ -147,8 +161,7 @@ impl_exec(void)
      * is passed as an extra environment variable into
      * the next child. Although there is a limit on the
      * amount of data that can be stuffed into a pipe,
-     * past Linux 2.6.11 (IIRC) this is 65K.
-     */
+     * past Linux 2.6.11 (IIRC) this is 65K. */
     int pipes[2];
     if( pipe(pipes) < 0 )
     {
@@ -209,6 +222,7 @@ impl_exec(void)
     }
 
     /* Execute in the same environment, etc. */
+    chdir(cwd_copy);
     DEBUG("Doing exec()... bye!");
     execve(exe_copy, args_copy, environ);
 
@@ -256,13 +270,13 @@ info_close(int fd, fdinfo_t* info)
     {
         case BOUND:
         case TRACKED:
-        case INITIAL:
             dec_ref(info);
             fd_delete(fd);
             rval = libc.close(fd);
             break;
 
         case SAVED:
+        case DUMMY:
             /* Woah, their program is most likely either messed up,
              * or it's going through and closing all descriptors
              * prior to an exec. We're just going to ignore this. */
@@ -278,12 +292,16 @@ do_dup3(int fd, int fd2, int flags)
     int rval = -1;
     fdinfo_t *info = NULL;
     fdinfo_t *info2 = NULL;
+
+    DEBUG("do_dup3(%d, %d, ...) ...", fd, fd2);
+    L();
     if( fd == fd2 )
     {
+        U();
+        DEBUG("do_dup3(%d, %d, ...) => 0", fd, fd2);
         return fd2;
     }
 
-    L();
     info = fd_lookup(fd);
     info2 = fd_lookup(fd2);
     if( info2 != NULL )
@@ -292,6 +310,7 @@ do_dup3(int fd, int fd2, int flags)
         if( rval < 0 )
         {
             U();
+            DEBUG("do_dup3(%d, %d, ...) => %d (close failed)", fd, fd2, rval);
             return rval;
         }
     }
@@ -300,6 +319,7 @@ do_dup3(int fd, int fd2, int flags)
     if( rval < 0 )
     {
         U();
+        DEBUG("do_dup3(%d, %d, ...) => %d (dup3 failed)", fd, fd2, rval);
         return rval;
     }
 
@@ -310,6 +330,7 @@ do_dup3(int fd, int fd2, int flags)
     }
 
     U();
+    DEBUG("do_dup3(%d, %d, ...) => %d", fd, fd2, rval);
     return rval;
 }
 
@@ -324,12 +345,15 @@ do_close(int fd)
 {
     int rval = -1;
     fdinfo_t *info = NULL;
+
+    DEBUG("do_close(%d, ...) ...", fd);
     L();
     info = fd_lookup(fd);
     if( info == NULL )
     {
         U();
         rval = libc.close(fd);
+        DEBUG("do_close(%d) => %d (no info)", fd, rval);
         return rval;
     }
 
@@ -337,8 +361,24 @@ do_close(int fd)
     impl_exit_check();
     U();
 
-    DEBUG("do_close(%d) => %d (with info)", fd, rval);
+    DEBUG("do_close(%d) => %d (%d tracked)",
+        fd, rval, total_tracked);
     return rval;
+}
+
+static void
+impl_init_lock(void)
+{
+    /* Initialize our lock.
+     * This is a recursive lock simply for convenience.
+     * There are a few calls (i.e. bind) which leverage
+     * other unlock internal calls (do_dup2), so we make
+     * the lock recursive. This could easily be eliminated
+     * with a little bit of refactoring. */
+    pthread_mutexattr_t mutex_attr;
+    pthread_mutexattr_init(&mutex_attr);
+    pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&mutex, &mutex_attr);
 }
 
 void
@@ -355,17 +395,9 @@ impl_init(void)
     }
 
     DEBUG("Initializing...");
-    
-    /* Initialize our lock.
-     * This is a recursive lock simply for convenience.
-     * There are a few calls (i.e. bind) which leverage
-     * other unlock internal calls (do_dup2), so we make
-     * the lock recursive. This could easily be eliminated
-     * with a little bit of refactoring. */
-    pthread_mutexattr_t mutex_attr;
-    pthread_mutexattr_init(&mutex_attr);
-    pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&mutex, &mutex_attr);
+
+    /* Initialize our lock. */
+    impl_init_lock();
 
     /* Save this pid as our master pid.
      * This is done to handle processes that use
@@ -390,7 +422,7 @@ impl_init(void)
         }
         else
         {
-            DEBUG("Unknown exit strategy.");
+            fprintf(stderr, "Unknown exit strategy.");
             _exit(1);
         }
     }
@@ -495,13 +527,7 @@ impl_init(void)
             int newfd = libc.dup(fd);
             if( newfd >= 0 )
             {
-                fdinfo_t *initial_info = alloc_info(INITIAL);
                 fdinfo_t *saved_info = alloc_info(SAVED);
-                if( initial_info != NULL )
-                {
-                    fd_save(fd, initial_info);
-                    DEBUG("Initial fd %d.", fd);
-                }
                 if( saved_info != NULL )
                 {
                     saved_info->saved.fd = fd;
@@ -528,6 +554,10 @@ impl_init(void)
     free(args_copy);
     args_copy = (char**)read_nul_sep("/proc/self/cmdline");
     DEBUG("Saved args.");
+    for( int i = 0; args_copy[i] != NULL; i += 1 )
+    {
+        DEBUG(" arg%d=%s", i, args_copy[i]);
+    }
 
     /* Save the cwd & exe. */
     free(cwd_copy);
@@ -543,8 +573,11 @@ impl_init(void)
      * masked the signals prior to the exec() below,
      * to cover the race between program start and 
      * us installing the appropriate handlers. */
-    signal(SIGHUP, sighandler);
-    signal(SIGUSR2, sighandler);
+    struct sigaction action;
+    action.sa_handler = sighandler;
+    action.sa_flags = SA_RESTART;
+    sigaction(SIGHUP, &action, NULL);
+    sigaction(SIGUSR2, &action, NULL);
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
@@ -556,9 +589,120 @@ impl_init(void)
     DEBUG("Initialization complete.");
 }
 
+static int
+impl_dummy_server(void)
+{
+    int dummy_server = -1;
+
+    /* Create our dummy sock. */
+    struct sockaddr_un dummy_addr;
+    char *socket_path = tempnam("/tmp", ".huptime");
+
+    memset(&dummy_addr, 0, sizeof(struct sockaddr_un));
+    dummy_addr.sun_family = AF_UNIX;
+    strncpy(dummy_addr.sun_path, socket_path, sizeof(dummy_addr.sun_path)-1);
+
+    /* Create a dummy server. */
+    dummy_server = socket(AF_UNIX, SOCK_STREAM, 0);
+    if( dummy_server < 0 )
+    {
+        fprintf(stderr, "Unable to create unix socket?");
+        return -1;
+    }
+    if( fcntl(dummy_server, F_SETFD, FD_CLOEXEC) < 0 )
+    {
+        close(dummy_server);
+        fprintf(stderr, "Unable to set cloexec?");
+        return -1;
+    }
+    if( libc.bind(
+            dummy_server,
+            (struct sockaddr*)&dummy_addr,
+            sizeof(struct sockaddr_un)) < 0 )
+    {
+        close(dummy_server);
+        fprintf(stderr, "Unable to bind unix socket?");
+        return -1;
+    }
+    if( libc.listen(dummy_server, 1) < 0 )
+    {
+        close(dummy_server);
+        fprintf(stderr, "Unable to listen on unix socket?");
+        return -1;
+    }
+
+    /* Connect a dummy client. */
+    int dummy_client = socket(AF_UNIX, SOCK_STREAM, 0);
+    if( dummy_client < 0 )
+    {
+        close(dummy_server);
+        fprintf(stderr, "Unable to create unix socket?");
+        return -1;
+    }
+    if( fcntl(dummy_client, F_SETFD, FD_CLOEXEC) < 0 )
+    {
+        close(dummy_server);
+        close(dummy_client);
+        fprintf(stderr, "Unable to set cloexec?");
+        return -1;
+    }
+    if( connect(
+            dummy_client,
+            (struct sockaddr*)&dummy_addr,
+            sizeof(struct sockaddr_un)) < 0 )
+    {
+        close(dummy_server);
+        close(dummy_client);
+        fprintf(stderr, "Unable to connect dummy client?");
+        return -1;
+    }
+
+    /* Put the client into an error state. */
+    int dummy_fd = libc.accept(dummy_server, NULL, 0);
+    if( dummy_fd < 0 )
+    {
+        fprintf(stderr, "Unable to accept internal client?");
+        close(dummy_server);
+        close(dummy_client);
+        return -1;
+    }
+    close(dummy_fd);
+
+    /* Save the dummy info. */
+    fdinfo_t* dummy_info = alloc_info(DUMMY);
+    if( dummy_info == NULL )
+    {
+        fprintf(stderr, "Unable to allocate dummy info?");
+        return -1;
+    }
+    dummy_info->dummy.client = dummy_client;
+    fd_save(dummy_server, dummy_info);
+    inc_ref(dummy_info);
+    fd_save(dummy_client, dummy_info);
+
+    /* Ensure that it's unlinked. */
+    unlink(socket_path);
+    free(socket_path);
+
+    return dummy_server;
+}
+
 void
 impl_exit_start(void)
 {
+    if( is_exiting == TRUE )
+    {
+        return;
+    }
+
+    /* We are now exiting.
+     * After this point, all calls to various sockets,
+     * (i.e. accept(), listen(), etc. will result in stalls.
+     * We are just waiting until existing connections have 
+     * finished and then we will be either exec()'ing a new
+     * version or exiting this process. */
+    is_exiting = TRUE;
+
     /* Get ready to restart.
      * We only proceed with actual restart actions
      * if we are the master process, otherwise we will
@@ -574,6 +718,48 @@ impl_exit_start(void)
         {
             DEBUG("Unlinking '%s'...", to_unlink);
             unlink(to_unlink);
+        }
+
+        /* Neuther this process. */
+        for( int fd = 0; fd < fd_limit(); fd += 1 )
+        {
+            fdinfo_t* info = fd_lookup(fd);
+            if( exit_strategy == FORK &&
+                info != NULL && info->type == SAVED )
+            {
+                /* Close initial files. Since these
+                 * are now passed on to the child, we
+                 * ensure that the parent won't mess 
+                 * with them anymore. Note that we still
+                 * have a copy as all SAVED descriptors. */
+                if( info->saved.fd == 2 ) continue;
+                int nullfd = open("/dev/null", O_RDWR);
+                do_dup2(nullfd, info->saved.fd);
+                libc.close(nullfd);
+            }
+            if( info != NULL &&
+                info->type == BOUND && !info->bound.is_ghost )
+            {
+                /* Change BOUND sockets to dummy sockets.
+                 * This will allow select() and poll() to
+                 * operate as you expect, and never give
+                 * back new clients. */
+                int newfd = do_dup(fd);
+                if( newfd >= 0 )
+                {
+                    int dummy_server = impl_dummy_server();
+                    if( dummy_server >= 0 )
+                    {
+                        info->bound.is_ghost = 1;
+                        do_dup2(dummy_server, fd);
+                        DEBUG("Replaced FD %d with dummy.", fd);
+                    }
+                    else
+                    {
+                        do_close(newfd);
+                    }
+                }
+            }
         }
 
         switch( exit_strategy )
@@ -592,23 +778,12 @@ impl_exit_start(void)
                 else
                 {
                     DEBUG("I'm the parent.");
-                    for( int fd = 0; fd < fd_limit(); fd += 1 )
-                    {
-                        fdinfo_t* info = fd_lookup(fd);
-                        if( info != NULL && info->type == INITIAL )
-                        {
-                            int null = open("/dev/null", O_RDWR);
-                            do_dup2(null, fd);
-                            libc.close(null);
-                        }
-                    }
+                    master_pid = child;
                 }
                 break;
 
             case EXEC:
-                /* Do nothing.
-                 * We will exec gracefully when the tracked
-                 * connection count reaches zero. */
+                /* Nothing necessary beyond the above. */
                 DEBUG("Exit strategy is exec.");
                 break;
         }
@@ -621,14 +796,6 @@ impl_exit_start(void)
         DEBUG("Exit started -- this is the child.");
         exit_strategy = FORK;
     }
-
-    /* We are now exiting.
-     * After this point, all calls to various sockets,
-     * (i.e. accept(), listen(), etc. will result in stalls.
-     * We are just waiting until existing connections have 
-     * finished and then we will be either exec()'ing a new
-     * version or exiting this process. */
-    is_exiting = TRUE;
 }
 
 void
@@ -653,10 +820,13 @@ static pid_t
 do_fork(void)
 {
     pid_t res = (pid_t)-1;
+
+    DEBUG("do_fork() ...");
     L();
     res = libc.fork();
     if( res == 0 )
     {
+        impl_init_lock();
         if( total_bound == 0 )
         {
             /* We haven't yet bound any sockets. This is
@@ -671,8 +841,12 @@ do_fork(void)
             master_pid = getpid();
         }
     }
+    else
+    {
+        U();
+    }
 
-    U();
+    DEBUG("do_fork() => %d", res);
     return res;
 }
 
@@ -682,7 +856,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     fdinfo_t *info = NULL;
     int rval = -1;
 
-    DEBUG("Bind called, searching for ghost...");
+    DEBUG("do_bind(%d, ...) ...", sockfd);
     L();
 
     /* See if this socket already exists. */
@@ -713,7 +887,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
             /* Success. */
             U();
-            DEBUG("Success.");
+            DEBUG("do_bind(%d, ...) => 0 (ghosted)", sockfd);
             return 0;
         }
     }
@@ -730,7 +904,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
                        sizeof(optval)) < 0 )
         {
             U();
-            DEBUG("Error enabling multi mode.");
+            DEBUG("do_bind(%d, ...) => -1 (no multi?)", sockfd);
             return -1;
         }
 
@@ -743,7 +917,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     if( info == NULL )
     {
         U();
-        DEBUG("Unable to allocate new info?");
+        DEBUG("do_bind(%d, ...) => -1 (alloc error?)", sockfd);
         return -1;
     }
     rval = libc.bind(sockfd, addr, addrlen);
@@ -751,7 +925,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     {
         dec_ref(info);
         U();
-        DEBUG("do_bind(...) => %d", rval);
+        DEBUG("do_bind(%d, ...) => %d (error)", sockfd, rval);
         return rval;
     }
 
@@ -764,7 +938,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 
     /* Success. */
     U();
-    DEBUG("do_bind(...) => %d", rval);
+    DEBUG("do_bind(%d, ...) => %d", sockfd, rval);
     return rval;
 }
 
@@ -773,6 +947,8 @@ do_listen(int sockfd, int backlog)
 {
     int rval = -1;
     fdinfo_t *info = NULL;
+
+    DEBUG("do_listen(%d, ...) ...", sockfd);
     L();
     info = fd_lookup(sockfd);
     if( info == NULL || info->type != BOUND )
@@ -830,9 +1006,11 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     int rval = -1;
     fdinfo_t *info = NULL;
+
+    DEBUG("do_accept4(%d, ...) ...", sockfd);
     L();
     info = fd_lookup(sockfd);
-    if( info == NULL || info->type != BOUND )
+    if( info == NULL || (info->type != BOUND && info->type != DUMMY) )
     {
         U();
         /* Should return an error. */
@@ -842,7 +1020,7 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     }
 
     /* Check that they've called listen. */
-    if( !info->bound.stub_listened )
+    if( info->type == BOUND && !info->bound.stub_listened )
     {
         U();
         DEBUG("do_accept4(%d, ...) => -1 (not listened)", sockfd);
@@ -856,54 +1034,66 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
      * etc. So we just act as a socket with no clients does --
      * either return immediately or block forever. NOTE: We
      * still return in case of EINTR or other suitable errors. */
-    if( is_exiting == TRUE )
+    if( info->type == DUMMY && info->dummy.client >= 0 )
     {
+        rval = info->dummy.client;
+        info->dummy.client = -1;
         U();
-
-        if( flags & SOCK_NONBLOCK )
-        {
-            DEBUG("do_accept4(%d, ...) => -1 (would block)", sockfd);
-            errno = EWOULDBLOCK;
-            return -1;
-        }
-        else
-        {
-            while( 1 )
-            {
-                rval = sleep((unsigned int)-1);
-                if( rval != 0 && errno != EINTR && errno != EAGAIN )
-                {
-                    DEBUG("do_accept4(%d, ...) => %d (sleep)", sockfd, rval);
-                    return rval;
-                }
-            }
-        }
+        DEBUG("do_accept4(%d, ...) => %d (dummy client)", sockfd, rval);
+        return rval;
     }
 
-    /* Create our new socket. */
+    U();
+
+    /* Wait for activity on the socket. */
+    struct pollfd poll_info;
+    poll_info.fd = sockfd;
+    poll_info.events = POLLIN;
+    poll_info.revents = 0;
+    if( poll(&poll_info, 1, -1) < 0 )
+    {
+        return -1;
+    }
+
+    L();
+
+    /* Check our status. */
+    if( is_exiting == TRUE )
+    {
+        /* We've transitioned from not exiting
+         * to exiting in this period. This will
+         * circle around a return a dummy descriptor. */
+        U();
+        errno = EINTR;
+        return -1;
+    }
+
+    /* Do the accept for real. */
     fdinfo_t *new_info = alloc_info(TRACKED);
     if( new_info == NULL )
     {
         U();
-        DEBUG("Unable to allocate new info?");
+        DEBUG("do_accept4(%d, ...) => -1 (alloc error?)", sockfd);
         return -1;
     }
     inc_ref(info);
     new_info->tracked.bound = info;
+    rval = libc.accept4(sockfd, addr, addrlen, flags|SOCK_NONBLOCK);
 
-    /* Do the accept for real. */
-    rval = libc.accept4(sockfd, addr, addrlen, flags);
     if( rval >= 0 )
     {
         /* Save the reference to the socket. */
         fd_save(rval, new_info);
-    } else {
+    }
+    else
+    {
         /* An error occured, nothing to track. */
         dec_ref(new_info);
     }
 
     U();
-    DEBUG("do_accept4(%d, ...) => %d", sockfd, rval);
+    DEBUG("do_accept4(%d, ...) => %d (tracked %d)",
+        sockfd, rval, total_tracked);
     return rval;
 }
 

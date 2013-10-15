@@ -34,12 +34,9 @@ typedef enum
      * FDs, etc. but we'll see what happens. */
     SAVED = 3,
 
-    /* INITIAL FDs are simply the initial open file
-     * descriptors that the process has. These are closed
-     * on a fork-based restart if they have not been closed
-     * already. This is because they will belong to the
-     * new process after this point. */
-    INITIAL = 4,
+    /* DUMMY FDs hold the dummy sockets used for simulating
+     * accept(), select() etc. during graceful shutdown. */
+    DUMMY = 4,
 } fdtype_t;
 
 struct fdinfo;
@@ -72,6 +69,12 @@ struct initialinfo
 {
 } initialinfo_t;
 
+typedef
+struct dummyinfo
+{
+    int client;
+} dummyinfo_t;
+
 struct fdinfo
 {
     fdtype_t type;
@@ -82,6 +85,7 @@ struct fdinfo
         trackedinfo_t tracked;
         savedinfo_t saved;
         initialinfo_t initial;
+        dummyinfo_t dummy;
     };
 };
 
@@ -90,6 +94,7 @@ extern int total_bound;
 extern int total_tracked;
 extern int total_saved;
 extern int total_initial;
+extern int total_dummy;
 
 static inline fdinfo_t*
 alloc_info(fdtype_t type)
@@ -109,8 +114,8 @@ alloc_info(fdtype_t type)
         case SAVED:
             __sync_fetch_and_add(&total_saved, 1);
             break;
-        case INITIAL:
-            __sync_fetch_and_add(&total_initial, 1);
+        case DUMMY:
+            __sync_fetch_and_add(&total_dummy, 1);
             break;
     }
     return info;
@@ -135,8 +140,8 @@ free_info(fdinfo_t* info)
         case SAVED:
             __sync_fetch_and_add(&total_saved, -1);
             break;
-        case INITIAL:
-            __sync_fetch_and_add(&total_initial, -1);
+        case DUMMY:
+            __sync_fetch_and_add(&total_dummy, -1);
             break;
     }
     free(info);

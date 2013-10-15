@@ -12,6 +12,7 @@
 #include <linux/limits.h>
 #include <string.h>
 #include <fcntl.h>
+#include <dirent.h>
 
 #define INITIAL_BUF_SIZE 4096
 
@@ -117,4 +118,41 @@ read_link(const char* filename)
     }
     buf[r] = '\0';
     return (const char*)strdup(buf);
+}
+
+pid_t*
+get_tasks(void)
+{
+    int count = 0;
+    int size = 3;
+    pid_t *buffer = malloc(sizeof(pid_t) * size);
+    DIR *dp = NULL;
+    struct dirent *ep = NULL;
+    buffer[0] = (pid_t)-1;
+
+    dp = opendir("/proc/self/task");
+    if( dp == NULL )
+    {
+        fprintf(stderr, "Failed to fetch tasks?\n");
+        return buffer;
+    }
+
+    while( (ep = readdir(dp)) != NULL )
+    {
+        if( ep->d_name[0] == '.' || ep->d_name[0] == '\0' )
+        {
+            continue;
+        }
+        long task_id = strtol(ep->d_name, NULL, 10);
+        if( count+1 >= size )
+        {
+            size = size * 2;
+            buffer = realloc(buffer, sizeof(long) * size);
+        }
+        buffer[count] = (pid_t)task_id;
+        count += 1;
+        buffer[count] = (pid_t)-1;
+    }
+
+    return buffer;
 }

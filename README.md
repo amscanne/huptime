@@ -205,7 +205,7 @@ is read on start-up (i.e. `myservice --config-file=/etc/myservice.cfg`).
 What's left to do?
 ------------------
 
-Add tests and documentation. Currently this is a simple proof-of-concept.
+Beef up tests and documentation.
 
 What's up with the name?
 ------------------------

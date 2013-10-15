@@ -10,34 +10,29 @@ exception of code edge cases. Separate tests will
 exist for this edge cases.
 """
 
+import sys
 import threading
+import pytest
 
 import harness
+import servers
+import modes
 
-def test_inactive(mode, server, handler, variants):
-    h = harness.Harness(mode, server, handler, variants)
-    try:
-        h.proxy.bind()
-        h.proxy.listen()
-        h.start()
-        h.start_client(data=0)
-        h.finish_client(data=0)
-        h.restart()
-        h.start_client(data=1)
-        h.finish_client(data=1)
-    finally:
-        h.stop()
+@pytest.fixture(params=map(lambda x: x.__name__, servers.SERVERS))
+def server(request):
+    """ A server object. """
+    return getattr(servers, request.param)
 
-def test_active(mode, server, handler, variants):
-    h = harness.Harness(mode, server, handler, variants)
+@pytest.fixture(params=map(lambda x: x.__name__, modes.MODES))
+def mode(request):
+    """ A mode object. """
+    return getattr(modes, request.param)
+
+def test_thrice(mode, server):
+    h = harness.Harness(mode, server)
     try:
-        h.proxy.bind()
-        h.proxy.listen()
-        h.start()
-        h.start_client(data=0)
         h.restart()
-        h.start_client(data=1)
-        h.finish_client(data=0)
-        h.finish_client(data=1)
+        h.restart()
+        h.restart()
     finally:
         h.stop()

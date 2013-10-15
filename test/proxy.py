@@ -6,6 +6,7 @@ through the huptime binary, but still have them
 accessible from the test harness.
 """
 
+import os
 import sys
 import uuid
 import subprocess
@@ -13,84 +14,144 @@ import threading
 import traceback
 import pickle
 
+import modes
 import servers
-import handlers
-import variants
 
 class ProxyServer(object):
 
-    def __init__(self, server_name, handler_name, variant_names, *handler_args):
-        # Get the real class.
-        server_class = getattr(servers, server_name)
-        handler_class = getattr(handlers, handler_name)
-        variant_names = variant_names.split(",")
-        self._variants = map(lambda x: getattr(variants, x)(), [vn for vn in variant_names if vn])
-        self._handler = handler_class(*handler_args)
-        self._server = server_class(self._handler)
+    def __init__(self, mode_name, server_name, cookie_file):
+        cookie = open(cookie_file, 'r').read()
+        self._mode = getattr(modes, mode_name)()
+        self._server = getattr(servers, server_name)(cookie)
+        self._cond = threading.Condition()
 
     def run(self):
+        # Open our pipes.
+        in_pipe = os.fdopen(3, 'r')
+        out_pipe = os.fdopen(4, 'w')
+
+        # Dump our startup message.
+        robj = {
+            "id": None,
+            "result": None
+        }
+        out_pipe.write(pickle.dumps(robj))
+        out_pipe.flush()
+
         # Get the call from the other side.
         while True:
             try:
-                obj = pickle.load(sys.stdin)
-                sys.stderr.write("server <- %s\n" % obj)
+                obj = pickle.load(in_pipe)
+                sys.stderr.write("proxy: server <- %s\n" % obj)
             except:
                 # We're done!
                 break
-            uniq = obj.get("id")
-            try:
-                if not "method_name" in obj:
-                    raise ValueError("no method_name?")
-                method_name = obj["method_name"]
-                args = obj.get("args")
-                kwargs = obj.get("kwargs")
+            def process():
+                self._process(obj, out_pipe)
+
+            t = threading.Thread(target=process)
+            t.daemon = True
+            t.start()
+
+        # Wait for processing to finish on
+        # the server side. It's possible that
+        # there are client connections to finish.
+        sys.stderr.write("proxy: waiting...")
+        self._server.wait()
+        sys.stderr.write("proxy: done")
+
+    def _process(self, obj, out):
+        uniq = obj.get("id")
+        try:
+            if not "method_name" in obj:
+                raise ValueError("no method_name?")
+            method_name = obj["method_name"]
+            args = obj.get("args")
+            kwargs = obj.get("kwargs")
+            if method_name:
                 method = getattr(self._server, method_name)
-                for variant in self._variants:
-                    variant.pre(method_name, self._server, self._handler)
+                self._mode.pre(method_name, self._server)
                 result = method(*args, **kwargs)
-                for variant in self._variants:
-                    variant.post(method_name, self._server, self._handler)
-                robj = {
-                    "id": uniq,
-                    "result": result
-                }
-            except Exception as e:
-                traceback.print_exc(e)
-                robj = {
-                    "id": uniq,
-                    "exception": e
-                }
-            sys.stderr.write("server -> %s\n" % obj)
-            pickle.dump(robj, sys.stdout)
-            sys.stdout.flush()
+                self._mode.post(method_name, self._server)
+            else:
+                result = None
+            robj = {
+                "id": uniq,
+                "result": result
+            }
+        except Exception as e:
+            traceback.print_exc(e)
+            robj = {
+                "id": uniq,
+                "exception": e
+            }
+
+        self._cond.acquire()
+        try:
+            sys.stderr.write("proxy: server -> %s\n" % robj)
+            out.write(pickle.dumps(robj))
+            out.flush()
+        finally:
+            self._cond.release()
 
 class ProxyClient(object):
 
-    def __init__(self, cmdline, server_name, handler_name, variant_names, *handler_args):
+    def __init__(self, cmdline, mode_class, server_class, cookie_file):
+        super(ProxyClient, self).__init__()
         self._cond = threading.Condition()
         self._results = {}
+        self._cookie_file = cookie_file
+
         cmdline = cmdline[:]
         cmdline.extend([
             "python",
             __file__,
-            server_name,
-            handler_name,
-            ",".join(variant_names)])
-        cmdline.extend(handler_args)
-        self._proc = subprocess.Popen(
+            mode_class.__name__,
+            server_class.__name__,
+            self._cookie_file,
+        ])
+
+        r, w = os.pipe()
+        self._out = os.fdopen(w, 'w')
+        proc_in = os.fdopen(r, 'r')
+
+        r, w = os.pipe()
+        self._in = os.fdopen(r, 'r')
+        proc_out = os.fdopen(w, 'w')
+
+        def _setup_pipes():
+            os.dup2(0, 3)
+            os.dup2(1, 4)
+            devnull = open("/dev/null", 'r')
+            os.dup2(devnull.fileno(), 0)
+            devnull.close()
+            os.dup2(2, 1)
+
+        sys.stderr.write("exec: %s\n" % " ".join(cmdline))
+        proc = subprocess.Popen(
             cmdline,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE)
+            stdin=proc_in,
+            stdout=proc_out,
+            preexec_fn=_setup_pipes,
+            close_fds=True)
 
-        self._thread = threading.Thread(target=self._run)
-        self._thread.daemon = True
-        self._thread.start()
+        proc_in.close()
+        proc_out.close()
 
-    def _stop(self):
-        self._proc.kill()
-        self._proc.wait()
+        # Start the processing thread.
+        t = threading.Thread(target=self._run)
+        t.daemon = True
+        t.start()
 
-    def _call(self, method_name, args=None, kwargs=None):
+        # Start the reaper thread.
+        self._reaper = threading.Thread(target=lambda: proc.wait())
+        self._reaper.daemon = True
+        self._reaper.start()
+
+    def _join(self):
+        self._reaper.join()
+
+    def _call(self, method_name=None, args=None, kwargs=None):
         if args is None:
             args = []
         if kwargs is None:
@@ -104,13 +165,13 @@ class ProxyClient(object):
             "args": args,
             "kwargs": kwargs
         }
-        sys.stderr.write("client -> %s\n" % obj)
-        pickle.dump(obj, self._proc.stdin)
-        self._proc.stdin.flush()
+        sys.stderr.write("proxy: client -> %s\n" % obj)
+        self._out.write(pickle.dumps(obj))
+        self._out.flush()
 
         return uniq
 
-    def _wait(self, uniq):
+    def _wait(self, uniq=None):
         # Wait for a result to appear.
         self._cond.acquire()
         try:
@@ -132,8 +193,8 @@ class ProxyClient(object):
         # Get the return from the other side.
         while True:
             try:
-                obj = pickle.load(self._proc.stdout)
-                sys.stderr.write("client <- %s\n" % obj)
+                obj = pickle.load(self._in)
+                sys.stderr.write("proxy: client <- %s\n" % obj)
             except:
                 # We're done!
                 break

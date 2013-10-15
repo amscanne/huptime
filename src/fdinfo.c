@@ -21,6 +21,9 @@ int total_saved = 0;
 /* Total initial FDs. */
 int total_initial = 0;
 
+/* Total dummy FDs. */
+int total_dummy = 0;
+
 #define exactly(fn, fd, buf, bytes)     \
 do {                                    \
     for( int _n = 0; _n != bytes; )     \
@@ -84,7 +87,7 @@ info_decode(int pipe, int *fd, fdinfo_t **info)
             break;
 
         case TRACKED:
-        case INITIAL:
+        case DUMMY:
             /* Should never happen. */
             break;
     }
@@ -119,7 +122,8 @@ info_encode(int pipe, int fd, fdinfo_t* info)
             break;
 
         case TRACKED:
-        case INITIAL:
+        case DUMMY:
+            /* Should never happen. */
             break;
     }
 
