@@ -13,8 +13,12 @@ CFLAGS ?= -Wall -fPIC -std=c99 -D_GNU_SOURCE
 CXXFLAGS ?= -Wall -fPIC -D_GNU_SOURCE -Wno-unused-function
 LDFLAGS ?= -shared
 
-all: build
-.PHONY: all
+default: test
+.PHONY: default
+
+test: build
+	@./py.test -p test.pytest_plugin
+.PHONY: test
 
 build: $(SOFILE)
 .PHONY: build
@@ -31,7 +35,7 @@ $(SOFILE): $(OBJECTS) src/stubs.map
 %.o: %.cc $(INCLUDES)
 	@$(CXX) -o $@ $(CXXFLAGS) -c $<
 
-install: $(SOFILE)
+install: test
 	@mkdir -p $(DESTDIR)/bin
 	@mkdir -p $(DESTDIR)/lib/huptime
 	@install -m 0755 -o 0 -g 0 bin/huptime $(DESTDIR)/bin/huptime
@@ -39,4 +43,6 @@ install: $(SOFILE)
 
 clean:
 	@rm -f $(SOFILE) $(OBJECTS)
+	@find . -name \*.pyc -exec rm -rf {} \;
+	@rm -rf test/__pycache__
 .PHONY: clean
