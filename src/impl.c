@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 typedef enum 
 {
@@ -255,6 +256,7 @@ info_close(int fd, fdinfo_t* info)
     {
         case BOUND:
         case TRACKED:
+        case INITIAL:
             dec_ref(info);
             fd_delete(fd);
             rval = libc.close(fd);
@@ -493,13 +495,18 @@ impl_init(void)
             int newfd = libc.dup(fd);
             if( newfd >= 0 )
             {
-                fdinfo_t *info = alloc_info(SAVED);
-                if( info != NULL )
+                fdinfo_t *initial_info = alloc_info(INITIAL);
+                fdinfo_t *saved_info = alloc_info(SAVED);
+                if( initial_info != NULL )
                 {
-                    info->saved.fd = fd;
-                    fd_save(newfd, info);
-                    DEBUG("Saved fd %d.", fd);
-                    continue;
+                    fd_save(fd, initial_info);
+                    DEBUG("Initial fd %d.", fd);
+                }
+                if( saved_info != NULL )
+                {
+                    saved_info->saved.fd = fd;
+                    fd_save(newfd, saved_info);
+                    DEBUG("Saved fd %d.", newfd);
                 }
             }
         }
@@ -585,6 +592,16 @@ impl_exit_start(void)
                 else
                 {
                     DEBUG("I'm the parent.");
+                    for( int fd = 0; fd < fd_limit(); fd += 1 )
+                    {
+                        fdinfo_t* info = fd_lookup(fd);
+                        if( info != NULL && info->type == INITIAL )
+                        {
+                            int null = open("/dev/null", O_RDWR);
+                            do_dup2(null, fd);
+                            libc.close(null);
+                        }
+                    }
                 }
                 break;
 

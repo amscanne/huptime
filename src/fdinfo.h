@@ -33,6 +33,13 @@ typedef enum
      * This may lead to some problems with open terminal
      * FDs, etc. but we'll see what happens. */
     SAVED = 3,
+
+    /* INITIAL FDs are simply the initial open file
+     * descriptors that the process has. These are closed
+     * on a fork-based restart if they have not been closed
+     * already. This is because they will belong to the
+     * new process after this point. */
+    INITIAL = 4,
 } fdtype_t;
 
 struct fdinfo;
@@ -60,6 +67,11 @@ struct savedinfo
     int fd;
 } savedinfo_t;
 
+typedef
+struct initialinfo
+{
+} initialinfo_t;
+
 struct fdinfo
 {
     fdtype_t type;
@@ -69,6 +81,7 @@ struct fdinfo
         boundinfo_t bound;
         trackedinfo_t tracked;
         savedinfo_t saved;
+        initialinfo_t initial;
     };
 };
 
@@ -76,6 +89,7 @@ struct fdinfo
 extern int total_bound;
 extern int total_tracked;
 extern int total_saved;
+extern int total_initial;
 
 static inline fdinfo_t*
 alloc_info(fdtype_t type)
@@ -94,6 +108,9 @@ alloc_info(fdtype_t type)
             break;
         case SAVED:
             __sync_fetch_and_add(&total_saved, 1);
+            break;
+        case INITIAL:
+            __sync_fetch_and_add(&total_initial, 1);
             break;
     }
     return info;
@@ -117,6 +134,9 @@ free_info(fdinfo_t* info)
             break;
         case SAVED:
             __sync_fetch_and_add(&total_saved, -1);
+            break;
+        case INITIAL:
+            __sync_fetch_and_add(&total_initial, -1);
             break;
     }
     free(info);
