@@ -17,7 +17,7 @@ default: test
 .PHONY: default
 
 test: build
-	@./py.test -p test.pytest_plugin
+	@./py.test -vv -p test.pytest_plugin
 .PHONY: test
 
 build: $(SOFILE)

@@ -14,8 +14,8 @@ import threading
 
 import harness
 
-def test_inactive(mode, server, handler):
-    h = harness.Harness(mode, server, handler)
+def test_inactive(mode, server, handler, variants):
+    h = harness.Harness(mode, server, handler, variants)
     try:
         h.proxy.bind()
         h.proxy.listen()
@@ -28,8 +28,8 @@ def test_inactive(mode, server, handler):
     finally:
         h.stop()
 
-def test_active(mode, server, handler):
-    h = harness.Harness(mode, server, handler)
+def test_active(mode, server, handler, variants):
+    h = harness.Harness(mode, server, handler, variants)
     try:
         h.proxy.bind()
         h.proxy.listen()

@@ -10,13 +10,16 @@ import proxy
 
 class Harness(object):
 
-    def __init__(self, mode_class, server_class, handler_class):
+    def __init__(self, mode_class, server_class, handler_class, variant_classes=None):
+        if variant_classes is None:
+            variant_classes = []
         self._mode = mode_class()
         self._handler = handler_class()
         self._proxy = proxy.ProxyClient(
             self._mode.cmdline(),
             server_class.__name__,
             handler_class.__name__,
+            map(lambda x: x.__name__, variant_classes),
             *self._handler.args())
         self._thread = None
         self._clients = {}

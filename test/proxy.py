@@ -15,14 +15,18 @@ import pickle
 
 import servers
 import handlers
+import variants
 
 class ProxyServer(object):
 
-    def __init__(self, server_name, handler_name, *handler_args):
+    def __init__(self, server_name, handler_name, variant_names, *handler_args):
         # Get the real class.
         server_class = getattr(servers, server_name)
         handler_class = getattr(handlers, handler_name)
-        self._server = server_class(handler_class(*handler_args))
+        variant_names = variant_names.split(",")
+        self._variants = map(lambda x: getattr(variants, x)(), [vn for vn in variant_names if vn])
+        self._handler = handler_class(*handler_args)
+        self._server = server_class(self._handler)
 
     def run(self):
         # Get the call from the other side.
@@ -41,7 +45,11 @@ class ProxyServer(object):
                 args = obj.get("args")
                 kwargs = obj.get("kwargs")
                 method = getattr(self._server, method_name)
+                for variant in self._variants:
+                    variant.pre(method_name, self._server, self._handler)
                 result = method(*args, **kwargs)
+                for variant in self._variants:
+                    variant.post(method_name, self._server, self._handler)
                 robj = {
                     "id": uniq,
                     "result": result
@@ -58,11 +66,16 @@ class ProxyServer(object):
 
 class ProxyClient(object):
 
-    def __init__(self, cmdline, server_name, handler_name, *handler_args):
+    def __init__(self, cmdline, server_name, handler_name, variant_names, *handler_args):
         self._cond = threading.Condition()
         self._results = {}
         cmdline = cmdline[:]
-        cmdline.extend(["python", __file__, server_name, handler_name])
+        cmdline.extend([
+            "python",
+            __file__,
+            server_name,
+            handler_name,
+            ",".join(variant_names)])
         cmdline.extend(handler_args)
         self._proc = subprocess.Popen(
             cmdline,
@@ -74,9 +87,8 @@ class ProxyClient(object):
         self._thread.start()
 
     def _stop(self):
-        self._proc.terminate()
+        self._proc.kill()
         self._proc.wait()
-        self._thread.join()
 
     def _call(self, method_name, args=None, kwargs=None):
         if args is None:
