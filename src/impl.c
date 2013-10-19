@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <poll.h>
 
 typedef enum 
@@ -433,6 +434,17 @@ impl_init(void)
     {
         DEBUG("Unlink is '%s'.", to_unlink);
     }
+
+    /* Clear up any outstanding child processes.
+     * Because we may have exited before the process
+     * could do appropriate waitpid()'s, we try to
+     * clean up children here. Note that we may have
+     * some zombies that hang around during the life
+     * of the program, but at every restart they will
+     * be cleaned up (so at least they won't grow
+     * without bound). */
+    int status = 0;
+    while( waitpid((pid_t)-1, &status, WNOHANG) > 0 );
 
     /* Check if we're in multi mode. */
     if( multi_env != NULL && strlen(multi_env) > 0 )
