@@ -454,9 +454,8 @@ impl_init(void)
 #ifndef SO_REUSEPORT
     if( multi_mode == TRUE )
     {
-        fprintf(stderr, "Multi mode not supported.\n");
+        fprintf(stderr, "WARNING: Multi mode not supported.\n");
         fprintf(stderr, "(Requires at least Linux 3.9 and recent headers).\n");
-        _exit(1);
     } 
 #endif
 
