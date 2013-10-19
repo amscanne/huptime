@@ -24,28 +24,20 @@ class Client(object):
         if port is None:
             port = servers.DEFAULT_PORT
         self._sock = socket.socket()
-        sys.stderr.write("client: connect()\n")
         self._sock.connect((host, port))
-        sys.stderr.write("client: connected!\n")
 
     def cookie(self):
-        sys.stderr.write("client: cookie (start)\n")
         self._sock.send("cookie")
         server_cookie = self._sock.recv(1024)
-        sys.stderr.write("client: cookie (done)\n")
         return server_cookie
 
     def ping(self):
-        sys.stderr.write("client: ping (start)\n")
         self._sock.send("ping")
         assert self._sock.recv(1024) == "pong"
-        sys.stderr.write("client: ping (done)\n")
 
     def drop(self):
-        sys.stderr.write("client: drop (start)\n")
         self._sock.send("drop")
         assert self._sock.recv(1024) == "okay"
-        sys.stderr.write("client: drop (done)\n")
         self._sock.close()
 
 class ClientThread(threading.Thread):

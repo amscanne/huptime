@@ -929,6 +929,19 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         return rval;
     }
 
+    /* Ensure that this socket is non-blocking,
+     * this is because we override the behavior
+     * for accept() and we require non-blocking
+     * behavior. We deal with the consequences. */
+    rval = fcntl(sockfd, F_SETFL, O_NONBLOCK);
+    if( rval < 0 )
+    {
+        dec_ref(info);
+        U();
+        DEBUG("do_bind(%d, ...) => %d (fcntl error)", sockfd, rval);
+        return -1;
+    }
+
     /* Save a refresh bound socket info. */
     info->bound.stub_listened = 0;
     info->bound.real_listened = 0;
@@ -1078,7 +1091,7 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     }
     inc_ref(info);
     new_info->tracked.bound = info;
-    rval = libc.accept4(sockfd, addr, addrlen, flags|SOCK_NONBLOCK);
+    rval = libc.accept4(sockfd, addr, addrlen, flags);
 
     if( rval >= 0 )
     {
@@ -1089,6 +1102,10 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     {
         /* An error occured, nothing to track. */
         dec_ref(new_info);
+
+        if( errno == EWOULDBLOCK && !(flags & SOCK_NONBLOCK) )
+        {
+        }
     }
 
     U();

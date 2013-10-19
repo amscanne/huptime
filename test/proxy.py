@@ -50,7 +50,6 @@ class ProxyServer(object):
                 self._process(obj, out_pipe)
 
             t = threading.Thread(target=process)
-            t.daemon = True
             t.start()
 
         # Wait for processing to finish on
@@ -80,7 +79,7 @@ class ProxyServer(object):
                 "result": result
             }
         except Exception as e:
-            traceback.print_exc(e)
+            traceback.print_exc()
             robj = {
                 "id": uniq,
                 "exception": e
@@ -171,7 +170,7 @@ class ProxyClient(object):
 
         return uniq
 
-    def _wait(self, uniq=None):
+    def _wait(self, uniq=None, method_name=None):
         # Wait for a result to appear.
         self._cond.acquire()
         try:
@@ -185,6 +184,8 @@ class ProxyClient(object):
                         return res["result"]
                     else:
                         raise ValueError("no result?")
+                sys.stderr.write("proxy: waiting for %s (%s)...\n" %
+                    (uniq, method_name))
                 self._cond.wait()
         finally:
             self._cond.release()
@@ -209,7 +210,7 @@ class ProxyClient(object):
     def __getattr__(self, method_name):
         def _fn(*args, **kwargs):
             uniq = self._call(method_name, args, kwargs)
-            return self._wait(uniq)
+            return self._wait(uniq, method_name=method_name)
         _fn.__name__ = method_name
         return _fn
 

@@ -20,6 +20,10 @@ test: build
 	@./py.test -vv
 .PHONY: test
 
+debug: build
+	@./py.test --capture=no -vv
+.PHONY: debug
+
 build: $(SOFILE)
 .PHONY: build
 

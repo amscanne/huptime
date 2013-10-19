@@ -46,22 +46,28 @@ class Mode(object):
     def restart(self, start_thread):
         raise NotImplementedError()
 
+    def __str__(self):
+        return self.__class__.__name__
+
 class Fork(Mode):
 
     def cmdline(self):
         return super(Fork, self).cmdline("--fork")
 
-    def restart(self, start_thread):
+    def restart(self, pid, getpid, start_thread):
         # Should come up immediately.
-        sys.stderr.write("mode: waiting for startup...\n")
+        sys.stderr.write("%s: waiting for startup...\n" % self)
         start_thread.join()
 
+        # Ensure that it's a new pid.
+        assert pid != getpid()
+
     def check(self,
-            start_thread,
+            pid, getpid, start_thread,
             old_clients, new_clients,
             old_cookie, new_cookie):
         # All the new clients should be responsive.
-        sys.stderr.write("mode: checking new clients...\n")
+        sys.stderr.write("%s: checking new clients...\n" % self)
         new_clients.verify([new_cookie])
 
         # Drop all the old clients.
@@ -72,24 +78,28 @@ class Exec(Mode):
     def cmdline(self):
         return super(Exec, self).cmdline("--exec")
 
-    def restart(self, start_thread):
+    def restart(self, pid, getpid, start_thread):
         # Ensure it's not started yet.
         assert start_thread.isAlive()
 
     def check(self,
-            start_thread,
+            pid, getpid, start_thread,
             old_clients, new_clients,
             old_cookie, new_cookie):
+
         # All old clients should keep working.
-        sys.stderr.write("mode: checking old clients...\n")
+        sys.stderr.write("%s: checking old clients...\n" % self)
         old_clients.verify([old_cookie, new_cookie])
 
         # Wait for startup (blocking).
-        sys.stderr.write("mode: waiting for startup...\n")
+        sys.stderr.write("%s: waiting for startup...\n" % self)
         start_thread.join()
 
+        # Ensure it's still the same pid.
+        assert pid == getpid()
+
         # All the new clients should now be responsive.
-        sys.stderr.write("mode: checking new clients...\n")
+        sys.stderr.write("%s: checking new clients...\n" % self)
         new_clients.verify([new_cookie])
 
 MODES = [

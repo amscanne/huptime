@@ -12,6 +12,8 @@ import time
 import uuid
 import tempfile
 import threading
+import traceback
+import re
 
 import proxy
 import client
@@ -42,7 +44,7 @@ class Harness(object):
         proxy_starter(self._proxy)()
 
     def stop(self):
-        self._proxy._call("close")
+        self._proxy._call("exit")
         self._proxy._join()
 
     @property
@@ -64,6 +66,34 @@ class Harness(object):
     def clients(self):
         return client.Clients()
 
+    def _restart(self, pid):
+        # Send SIGHUP.
+        os.kill(pid, signal.SIGHUP)
+
+        # Wait for the SIGHUP to be processed.
+        while True:
+            # If this file doesn't exist, then
+            # the process must have disappeared.
+            # That's fine (it's a restart). But
+            # if it still exists, we can confirm
+            # that the signal is finished by looking
+            # at the mask of the process.
+            try:
+                finished = False
+                data = open("/proc/%d/status" % pid, 'r').read()
+                for line in data.split("\n"):
+                    m = re.match("SigBlk:\s*([0-9a-f]+)", line)
+                    if m:
+                        # SIGHUP happens to be 1. So if
+                        # this is not blocked, the number
+                        # will be even. Once the signal is
+                        # not blocked, we know it's done.
+                        if int(m.group(1), 16) % 2 == 0:
+                            return
+            except:
+                traceback.print_exc()
+                return
+
     def restart(self, cookie=None):
         # Connect clients.
         old_clients = self.clients()
@@ -75,19 +105,20 @@ class Harness(object):
         # Grab the current pid, and hit
         # the server with a restart signal.
         sys.stderr.write("harness: restart\n")
-        pids = self._proxy.getpids()
-        for pid in pids:
-            os.kill(pid, signal.SIGHUP)
-        for pid in pids:
-            self._proxy._call()
+        pid = self._proxy.restart_pid()
+        self._restart(pid)
 
         # Whenever it's ready, restart the server.
         start_thread = threading.Thread(target=proxy_starter(self._proxy))
         start_thread.daemon = True
         start_thread.start()
 
+        # Hook to fetch current pid. 
+        def getpid():
+            return self._proxy.getpid()
+
         # Call into the mode to validate.
-        self._mode.restart(start_thread)
+        self._mode.restart(pid, getpid, start_thread)
 
         # Connect new clients.
         new_clients = self.clients()
@@ -97,6 +128,6 @@ class Harness(object):
         # the mode will drop the all clients in order
         # to assert that things are fully working.
         self._mode.check(
-                start_thread,
+                pid, getpid, start_thread,
                 old_clients, new_clients,
                 old_cookie, self._cookie)
