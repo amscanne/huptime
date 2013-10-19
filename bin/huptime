@@ -170,7 +170,7 @@ if RESTART or STOP:
                         break
             except:
                 break
-            debug("Restart complete for PID %d." % pid)
+        debug("Restart complete for PID %d." % pid)
 
 else:
     debug("Mode is %s." % HUPTIME_MODE)

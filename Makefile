@@ -39,7 +39,7 @@ $(SOFILE): $(OBJECTS) src/stubs.map
 %.o: %.cc $(INCLUDES)
 	@$(CXX) -o $@ $(CXXFLAGS) -c $<
 
-install: test
+install: build
 	@mkdir -p $(DESTDIR)/bin
 	@mkdir -p $(DESTDIR)/lib/huptime
 	@install -m 0755 -o 0 -g 0 bin/huptime $(DESTDIR)/bin/huptime
