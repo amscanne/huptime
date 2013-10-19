@@ -57,9 +57,9 @@ class Server(object):
             self._cond.release()
         return client
 
-    def restart_pid(self):
+    def restart_pids(self):
         sys.stderr.write("%s: restart_pid()\n" % self)
-        return self.getpid()
+        return [self.getpid()]
 
     def getpid(self):
         sys.stderr.write("%s: getpid()\n" % self)
@@ -138,7 +138,7 @@ class Server(object):
                 return False
 
     def run(self):
-        sys.stderr.write("%s: run() finished.\n")
+        raise NotImplementedError()
 
     def __str__(self):
         return "%s %d.%d" % (
@@ -154,7 +154,6 @@ class SimpleServer(Server):
             while self.handle(client):
                 # Continue until finished.
                 pass
-        super(SimpleServer, self).run()
 
 class EventServer(Server):
    
@@ -172,7 +171,6 @@ class EventServer(Server):
                     # Process the request.
                     if not self.handle(sock):
                         del self._fdmap[fd]
-        super(EventServer, self).run()
 
 class ThreadServer(Server):
 
@@ -193,34 +191,33 @@ class ThreadServer(Server):
             t = threading.Thread(target=closure(client))
             t.daemon = True
             t.start()
-        super(ThreadServer, self).run()
 
 class ProcessServer(Server):
 
     def __init__(self, *args, **kwargs):
         super(ProcessServer, self).__init__(*args, **kwargs)
         self._pids = []
-        self._cond = threading.Condition()
+
+    def run(self):
+        while True:
+            client = self.accept()
+            pid = os.fork()
+            if pid == 0:
+                while self.handle(client):
+                    # Continue until finished.
+                    pass
+                os._exit(0)
+            else:
+                self._pids.append(pid)
+                self.drop(client)
+
+    def _waitall(self):
+        for pid in self._pids:
+            os.waitpid(pid, 0)
 
     def exit(self):
-        self._cond.acquire()
-        for pid in self._pids:
-            os.kill(pid, signal.SIGTERM)
-        for pid in self._pids:
-            os.waitpid(pid, 0)
-        super(ProcessServer, self).exit()
-        self._cond.release()
-
-    def restart_pid(self):
-        self._cond.acquire()
-        for pid in self._pids:
-            os.kill(pid, signal.SIGHUP)
-        for pid in self._pids:
-            os.waitpid(pid, 0)
-        self._pids = []
-        rval = super(ProcessServer, self).restart_pid()
-        self._cond.release()
-        return rval
+        self._waitall()
+        return super(ProcessServer, self).exit()
 
 class PoolServer(SimpleServer):
 
@@ -242,18 +239,27 @@ class ThreadPoolServer(PoolServer):
 class ProcessPoolServer(PoolServer, ProcessServer):
 
     def _create(self, target):
-        self._cond.acquire()
         pid = os.fork()
         if pid == 0:
             target()
             os._exit(0)
         self._pids.append(pid)
-        self._cond.release()
+
+    def restart_pids(self):
+        pids = super(ProcessPoolServer, self).restart_pids()
+        pids.extend(self._pids)
+        return pids
+
+    def exit(self):
+        for pid in self._pids:
+            os.kill(pid, signal.SIGTERM)
+        super(ProcessPoolServer, self).exit()
 
 SERVERS = [
     SimpleServer,
     EventServer,
     ThreadServer,
+    ProcessServer,
     ThreadPoolServer,
     ProcessPoolServer,
 ]

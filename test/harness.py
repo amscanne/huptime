@@ -102,23 +102,25 @@ class Harness(object):
         old_cookie = self._cookie
         self._set_cookie(cookie)
 
+        # Hook to fetch current pid. 
+        def getpid():
+            return self._proxy.getpid()
+        orig_pid = getpid()
+
         # Grab the current pid, and hit
         # the server with a restart signal.
         sys.stderr.write("harness: restart\n")
-        pid = self._proxy.restart_pid()
-        self._restart(pid)
+        pids = self._proxy.restart_pids()
+        for pid in pids:
+            self._restart(pid)
 
         # Whenever it's ready, restart the server.
         start_thread = threading.Thread(target=proxy_starter(self._proxy))
         start_thread.daemon = True
         start_thread.start()
 
-        # Hook to fetch current pid. 
-        def getpid():
-            return self._proxy.getpid()
-
         # Call into the mode to validate.
-        self._mode.restart(pid, getpid, start_thread)
+        self._mode.restart(orig_pid, getpid, start_thread)
 
         # Connect new clients.
         new_clients = self.clients()
@@ -128,6 +130,6 @@ class Harness(object):
         # the mode will drop the all clients in order
         # to assert that things are fully working.
         self._mode.check(
-                pid, getpid, start_thread,
+                orig_pid, getpid, start_thread,
                 old_clients, new_clients,
                 old_cookie, self._cookie)
