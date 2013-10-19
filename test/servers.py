@@ -8,7 +8,6 @@ which can be created by different tests.
 import os
 import sys
 import socket
-import signal
 import thread
 import threading
 import traceback
@@ -43,6 +42,10 @@ class Server(object):
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind((host, port))
 
+    def close(self):
+        sys.stderr.write("%s: close()\n" % self)
+        self._sock.close()
+
     def listen(self, backlog=DEFAULT_BACKLOG):
         sys.stderr.write("%s: listen()\n" % self)
         self._sock.listen(backlog)
@@ -50,31 +53,13 @@ class Server(object):
     def accept(self):
         sys.stderr.write("%s: accept()\n" % self)
         client, _ = self._sock.accept()
-        self._cond.acquire()
-        try:
-            self._clients += 1
-        finally:
-            self._cond.release()
         return client
-
-    def restart_pids(self):
-        sys.stderr.write("%s: restart_pid()\n" % self)
-        return [self.getpid()]
 
     def getpid(self):
         sys.stderr.write("%s: getpid()\n" % self)
         return os.getpid()
 
-    def close(self):
-        sys.stderr.write("%s: close()\n" % self)
-        self._sock.close()
-
-    def exit(self):
-        sys.stderr.write("%s: exit()\n" % self)
-        self.close()
-        os._exit(0)
-
-    def _handle(self, client):
+    def handle(self, client):
         # This implements a very simple protocol that
         # allows us to test for a code "version" (by the
         # cookie at startup) and liveness (via ping).
@@ -86,7 +71,11 @@ class Server(object):
             (self, client.fileno(), command))
         if not command:
             # Bad client?
-            self.drop(client)
+            # Occassionally huptime will send back
+            # fake clients during a restart to get
+            # around race races. We handle this as
+            # a serve would handle a bad client.
+            client.close()
             return False
 
         # Ensure it's a valid command.
@@ -100,42 +89,9 @@ class Server(object):
             rval = True
         elif command == "drop":
             client.send("okay")
-            self.drop(client)
+            client.close()
 
         return rval
-
-    def drop(self, client):
-        self._cond.acquire()
-        try:
-            sys.stderr.write("%s: close(%d)\n" % 
-                (self, client.fileno()))
-            client.close()
-            self._clients -= 1
-            self._cond.notifyAll()
-        finally:
-            self._cond.release()
-
-    def wait(self):
-        self._cond.acquire()
-        try:
-            while self._clients > 0:
-                sys.stderr.write("%s: waiting for clients...\n" % self)
-                self._cond.wait()
-        finally:
-            self._cond.release()
-
-    def handle(self, client):
-        try:
-            sys.stderr.write("%s: handle(%d) (%d active)\n" %
-                (self, client.fileno(), self._clients))
-            return self._handle(client)
-        except socket.error as e:
-            traceback.print_exc()
-            if e.args[0] in (errno.EINTR, errno.EAGAIN):
-                return True
-            else:
-                self.drop(client)
-                return False
 
     def run(self):
         raise NotImplementedError()
@@ -196,7 +152,6 @@ class ProcessServer(Server):
 
     def __init__(self, *args, **kwargs):
         super(ProcessServer, self).__init__(*args, **kwargs)
-        self._pids = []
 
     def run(self):
         while True:
@@ -208,16 +163,10 @@ class ProcessServer(Server):
                     pass
                 os._exit(0)
             else:
-                self._pids.append(pid)
-                self.drop(client)
-
-    def _waitall(self):
-        for pid in self._pids:
-            os.waitpid(pid, 0)
-
-    def exit(self):
-        self._waitall()
-        return super(ProcessServer, self).exit()
+                client.close()
+                t = threading.Thread(target=lambda: os.waitpid(pid, 0))
+                t.daemon = True
+                t.start()
 
 class PoolServer(SimpleServer):
 
@@ -243,17 +192,10 @@ class ProcessPoolServer(PoolServer, ProcessServer):
         if pid == 0:
             target()
             os._exit(0)
-        self._pids.append(pid)
-
-    def restart_pids(self):
-        pids = super(ProcessPoolServer, self).restart_pids()
-        pids.extend(self._pids)
-        return pids
-
-    def exit(self):
-        for pid in self._pids:
-            os.kill(pid, signal.SIGTERM)
-        super(ProcessPoolServer, self).exit()
+        else:
+            t = threading.Thread(target=lambda: os.waitpid(pid, 0))
+            t.daemon = True
+            t.start()
 
 SERVERS = [
     SimpleServer,

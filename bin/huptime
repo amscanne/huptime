@@ -1,61 +1,208 @@
-#!/bin/bash
+#!/usr/bin/env python
 
-REALPATH=$(readlink -f $0)
-BINDIR=$(dirname $REALPATH)
-BASEDIR=$(dirname $BINDIR)
-LIBDIR=$BASEDIR/lib/huptime
-SOFILE=$LIBDIR/huptime.so
+import os
+import sys
+import signal
+import re
+import copy
+
+REALPATH = os.path.realpath(sys.argv[0])
+BINDIR = os.path.dirname(REALPATH)
+BASEDIR = os.path.dirname(BINDIR)
+LIBDIR = os.path.join(BASEDIR, "lib", "huptime")
+SOFILE = os.path.join(LIBDIR, "huptime.so")
 
 # Defaults.
-HUPTIME_MODE=fork
-HUPTIME_MULTI=false
-HUPTIME_UNLINK=
-HUPTIME_DEBUG=false
+RESTART = False
+STOP = False
 
-usage() {
-    echo "usage: $0 [--fork|--exec] [--multi] [--unlink <file>] [--debug] [--] <command...>"
-    echo "  or   $0 --help"
-}
+HUPTIME_MODE = "fork"
+HUPTIME_MULTI = False
+HUPTIME_UNLINK = ""
+HUPTIME_DEBUG = False
 
-while [ "$#" -ge "1" ]; do
-    if expr match "$1" "-.*" >/dev/null; then
-        # Parse options.
-        if [ "$1" == "--" ]; then
+MULTI_COUNT = 1
+MULTI_PIDS = []
+
+def usage():
+    print "usage: %s [--fork|--exec] [--multi=<N>] [--unlink=<file>] [--debug] [--] <command...>" % sys.argv[0]
+    print "  or   %s [--debug] --restart <command...>" % sys.argv[0]
+    print "  or   %s [--debug] --stop <command...>" % sys.argv[0]
+    print "  or   %s --help" % sys.argv[0]
+
+def debug(msg):
+    if HUPTIME_DEBUG:
+        print "huptime %d: %s" % (os.getpid(), msg)
+
+# Parse all options.
+ARGS = sys.argv[1:]
+
+while len(ARGS) > 0: 
+
+    arg = ARGS[0]
+
+    if arg.startswith("--"):
+        if "=" in arg:
+            arg, value = arg[2:].split("=", 1)
+        else:
+            arg, value = arg[2:], None
+
+        if not arg:
             break
-        elif [ "${1#--}" == "exec" ]; then
-            HUPTIME_MODE=exec
-        elif [ "${1#--}" == "fork" ]; then
-            HUPTIME_MODE=fork
-        elif [ "${1#--}" == "multi" ]; then
-            HUPTIME_MULTI=true
-        elif [ "${1#--}" == "debug" ]; then
-            HUPTIME_DEBUG=true
-        elif [ "${1#--}" == "unlink" ]; then
-            shift
-            HUPTIME_UNLINK=$1
-        elif [ "${1#--}" == "help" ]; then
-            usage
-            exit 0
-        else
-            usage
-            exit 1
-        fi
-        shift
-    else
+        elif arg == "exec" and not value:
+            HUPTIME_MODE = "exec"
+        elif arg == "fork" and not value:
+            HUPTIME_MODE = "fork"
+        elif arg == "multi" and value:
+            HUPTIME_MULTI = True
+            MULTI_COUNT = value
+        elif arg == "debug" and not value:
+            HUPTIME_DEBUG = True
+        elif arg == "unlink" and value:
+            HUPTIME_UNLINK = value
+        elif arg == "help" and not value:
+            usage()
+            sys.exit(0)
+        elif arg == "restart":
+            RESTART = True
+        elif arg == "stop":
+            STOP = True
+        else:
+            usage()
+            sys.exit(1)
+    else:
         # Non-option.
         break
-    fi
-done
 
-if [ "$#" -eq "0" ]; then
-    usage
-    exit 0
-fi
+    # Move to the next option.
+    ARGS.pop(0)
 
-# Execute our new process.
-LD_PRELOAD=$SOFILE \
-    HUPTIME_DEBUG=$HUPTIME_DEBUG \
-    HUPTIME_UNLINK=$HUPTIME_UNLINK \
-    HUPTIME_MULTI=$HUPTIME_MULTI \
-    HUPTIME_MODE=$HUPTIME_MODE \
-    exec "$@"
+if len(ARGS) == 0:
+    usage()
+    sys.exit(0)
+
+try:
+    if int(MULTI_COUNT) <= 0:
+        raise ValueError()
+except ValueError:
+    print "Invalid value for --multi (should be positive integer)."
+    sys.exit(1)
+
+if RESTART or STOP:
+
+    # Check that the user hasn't passed any
+    # options which we could consider invalid.
+    if RESTART and STOP:
+        print "Invalid options: can't specify both --restart and --stop."
+        sys.exit(1)
+
+    # Go through /proc/*/cmdline and find matches.
+    # NOTE: Some interpretors may fudge the command
+    # line, so we may it against argv[0:] or argv[1:].
+    exact_matches = []
+    inter_matches = []
+
+    for pid in os.listdir("/proc"):
+        try:
+            pid = int(pid)
+            if pid == os.getpid():
+                continue
+
+            cmd = open("/proc/%d/cmdline" % pid, 'r').read().split("\0")
+
+            # An exact match.
+            if len(cmd) >= len(ARGS) and cmd[:len(ARGS)] == ARGS:
+                exact_matches.append(pid)
+
+            # Interpreter match.
+            elif (len(cmd) >= 1+len(ARGS) and cmd[1:1+len(ARGS)] == ARGS) or \
+                 (len(cmd) >= 2+len(ARGS) and cmd[2:2+len(ARGS)] == ARGS):
+                inter_matches.append(pid)
+        except:
+            continue
+
+    if exact_matches:
+        debug("Found exact processes: %s" % exact_matches)
+    if inter_matches:
+        debug("Found interpreter processes: %s" % inter_matches)
+
+    # Kill the preferred process group in order
+    # to do the restart. We grab the pids to block
+    # until the restart is complete below.
+    active_pids = []
+    if exact_matches:
+        active_pids = exact_matches
+    elif inter_matches:
+        active_pids = inter_matches
+    else:
+        print "No process found to restart?"
+        sys.exit(1)
+
+    for pid in active_pids:
+        try:
+            sig = RESTART and signal.SIGHUP or signal.SIGTERM
+            debug("Killing PID %d (signal %d)..." % (pid, sig))
+            os.kill(pid, sig)
+        except OSError:
+            continue
+
+    # Block until the SIGHUP signal has been
+    # unmasked from this PID, or it no longer
+    # exists. When the SIGHUP signal is unmasked,
+    # know that the restart has been processed.
+    for pid in active_pids:
+        while True:
+            try:
+                data = open("/proc/%d/status" % pid, 'r').read().split("\n")
+                if RESTART:
+                    is_restarted = False
+                    for line in data:
+                        m = re.match("SigBlk:\s*([0-9a-f]+)", line)
+                        if m:
+                            # SIGHUP happens to be 1. So if
+                            # this is not blocked, the number
+                            # will be even. Once the signal is
+                            # not blocked, we know it's done.
+                            if int(m.group(1), 16) % 2 == 0:
+                                is_restarted = True
+                                break
+                    if is_restarted:
+                        break
+            except:
+                break
+            debug("Restart complete for PID %d." % pid)
+
+else:
+    debug("Mode is %s." % HUPTIME_MODE)
+    debug("Unlink is %s." % HUPTIME_UNLINK)
+    debug("Multi is %s." % HUPTIME_MULTI)
+
+    ENV = copy.copy(os.environ)
+    ENV["LD_PRELOAD"] = SOFILE
+    ENV["HUPTIME_DEBUG"] = str(HUPTIME_DEBUG).lower()
+    ENV["HUPTIME_MODE"] = HUPTIME_MODE
+    ENV["HUPTIME_UNLINK"] = HUPTIME_UNLINK
+    ENV["HUPTIME_MULTI"] = str(HUPTIME_MULTI).lower()
+
+    if MULTI_COUNT == 1:
+        # Execute our new process.
+        os.execvpe(ARGS[0], ARGS, ENV)
+        sys.exit(1)
+
+    else:
+        # Execute many processes.
+        # NOTE: In this case, to ensure that
+        # this can cleanly be used from supervisors
+        # and init scripts, we wait for the children
+        # to complete.
+        child_pids = []
+        for _ in range(MULTI_COUNT):
+            pid = os.fork()
+            if pid == 0:
+                os.execvpe(ARGS[0], ARGS, ENV)
+                sys.exit(1)
+            else:
+                child_pids.append(pid)
+
+        for pid in child_pids:
+            os.waitpid(pid, 0)

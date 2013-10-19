@@ -56,6 +56,9 @@ For example:
     # Zero downtime restart.
     killall -HUP myservice
 
+    # Or, if you prefer...
+    huptime --restart /usr/bin/myservice
+
 If there is a pidfile, it can be reset on restart:
 
     # Start the service.
@@ -63,6 +66,9 @@ If there is a pidfile, it can be reset on restart:
 
     # Zero downtime restarts.
     killall -HUP myservice
+
+    # Again, if you prefer...
+    huptime --restart /usr/bin/myservice
 
 Or, if you need exec (for example, to run under upstart):
 
@@ -72,6 +78,9 @@ Or, if you need exec (for example, to run under upstart):
 
     # Zero downtime restart (same PID).
     kill -HUP $PID
+
+    # Again, as always...
+    huptime --restart /usr/bin/myservice
 
 What does it support?
 ---------------------
@@ -105,15 +114,15 @@ not require any modification on your application.
 For example:
 
     # Start the service (4 workers).
-    huptime --multi /usr/bin/myservice &
-    huptime --multi /usr/bin/myservice &
-    huptime --multi /usr/bin/myservice &
-    huptime --multi /usr/bin/myservice &
+    huptime --multi=4 /usr/bin/myservice &
 
     # Zero downtime restart of all.
     killall -HUP myservice
 
-Want a script that runs $N copies and handles restarts & exit?
+    # Or, if you prefer...
+    huptime --restart /usr/bin/myservice
+
+Want to manage the number of running scripts yourself?
 
     pids="";
 
@@ -135,7 +144,7 @@ Want a script that runs $N copies and handles restarts & exit?
 
     count="0";
     while [ "$count" -lt "$N" ]; do
-        huptime --multi /usr/bin/myservice &
+        huptime --multi=1 /usr/bin/myservice &
         pids="$pids $!";
         count=$(($count + 1));
     done
@@ -201,11 +210,6 @@ problems.
 The command line and environment cannot be changed between restarts. You can
 easily work around this issue by putting all configuration inside a file that
 is read on start-up (i.e. `myservice --config-file=/etc/myservice.cfg`).
-
-What's left to do?
-------------------
-
-Beef up tests and documentation.
 
 What's up with the name?
 ------------------------

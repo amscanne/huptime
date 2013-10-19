@@ -52,13 +52,6 @@ class ProxyServer(object):
             t = threading.Thread(target=process)
             t.start()
 
-        # Wait for processing to finish on
-        # the server side. It's possible that
-        # there are client connections to finish.
-        sys.stderr.write("proxy: waiting...")
-        self._server.wait()
-        sys.stderr.write("proxy: done")
-
     def _process(self, obj, out):
         uniq = obj.get("id")
         try:
@@ -95,20 +88,20 @@ class ProxyServer(object):
 
 class ProxyClient(object):
 
-    def __init__(self, cmdline, mode_class, server_class, cookie_file):
+    def __init__(self, mode, server_class, cookie_file):
         super(ProxyClient, self).__init__()
+        self._mode = mode
+        self._server_class = server_class
         self._cond = threading.Condition()
         self._results = {}
         self._cookie_file = cookie_file
-
-        cmdline = cmdline[:]
-        cmdline.extend([
+        self._cmdline = [
             "python",
             __file__,
-            mode_class.__name__,
+            mode.__class__.__name__,
             server_class.__name__,
             self._cookie_file,
-        ])
+        ]
 
         r, w = os.pipe()
         self._out = os.fdopen(w, 'w')
@@ -126,9 +119,8 @@ class ProxyClient(object):
             devnull.close()
             os.dup2(2, 1)
 
-        sys.stderr.write("exec: %s\n" % " ".join(cmdline))
-        proc = subprocess.Popen(
-            cmdline,
+        self._mode.start(
+            self._cmdline,
             stdin=proc_in,
             stdout=proc_out,
             preexec_fn=_setup_pipes,
@@ -141,14 +133,6 @@ class ProxyClient(object):
         t = threading.Thread(target=self._run)
         t.daemon = True
         t.start()
-
-        # Start the reaper thread.
-        self._reaper = threading.Thread(target=lambda: proc.wait())
-        self._reaper.daemon = True
-        self._reaper.start()
-
-    def _join(self):
-        self._reaper.join()
 
     def _call(self, method_name=None, args=None, kwargs=None):
         if args is None:
@@ -207,11 +191,16 @@ class ProxyClient(object):
             finally:
                 self._cond.release()
 
+    def stop(self):
+        self._mode.stop(self._cmdline)
+
+    def restart(self):
+        self._mode.restart(self._cmdline)
+
     def __getattr__(self, method_name):
         def _fn(*args, **kwargs):
             uniq = self._call(method_name, args, kwargs)
             return self._wait(uniq, method_name=method_name)
-        _fn.__name__ = method_name
         return _fn
 
 if __name__ == "__main__":

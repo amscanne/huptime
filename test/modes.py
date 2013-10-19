@@ -7,6 +7,8 @@ These are various modes of operation.
 import sys
 import os
 import time
+import subprocess
+import threading
 
 class Mode(object):
 
@@ -24,7 +26,8 @@ class Mode(object):
         if hasattr(self, 'post_%s' % name):
             getattr(self, 'post_%s' % name)(server)
 
-    def cmdline(self, *args):
+    def _run(self, cmdline, reap=True, **kwargs):
+        args = self._args()
         cmd = [
             os.path.abspath(
                 os.path.join(
@@ -32,18 +35,36 @@ class Mode(object):
                     "..",
                     "bin",
                     "huptime")),
-            "--debug",
+            "--debug"
         ]
         cmd.extend(args)
-        return cmd
+        cmd.extend(cmdline)
+        sys.stderr.write("exec: %s\n" % " ".join(cmd))
+        proc = subprocess.Popen(cmd, **kwargs)
+        t = threading.Thread(target=lambda: proc.wait())
+        t.daemon = True
+        t.start()
+        return t
 
-    def check(self,
+    def _args(self):
+        raise NotImplementedError()
+
+    def start(self, cmdline, **kwargs):
+        self._run(cmdline, **kwargs)
+
+    def stop(self, cmdline):
+        self._run(["--stop"] + cmdline).join()
+
+    def restart(self, cmdline):
+        self._run(["--restart"] + cmdline).join()
+
+    def check_clients(self,
             start_thread,
             old_clients, new_clients,
             old_cookie, new_cookie):
         raise NotImplementedError()
 
-    def restart(self, start_thread):
+    def check_restart(self, start_thread):
         raise NotImplementedError()
 
     def __str__(self):
@@ -51,10 +72,10 @@ class Mode(object):
 
 class Fork(Mode):
 
-    def cmdline(self):
-        return super(Fork, self).cmdline("--fork")
+    def _args(self):
+        return ["--fork"]
 
-    def restart(self, pid, getpid, start_thread):
+    def check_restart(self, pid, getpid, start_thread):
         # Should come up immediately.
         sys.stderr.write("%s: waiting for startup...\n" % self)
         start_thread.join()
@@ -62,7 +83,7 @@ class Fork(Mode):
         # Ensure that it's a new pid.
         assert pid != getpid()
 
-    def check(self,
+    def check_clients(self,
             pid, getpid, start_thread,
             old_clients, new_clients,
             old_cookie, new_cookie):
@@ -75,14 +96,14 @@ class Fork(Mode):
 
 class Exec(Mode):
 
-    def cmdline(self):
-        return super(Exec, self).cmdline("--exec")
+    def _args(self):
+        return ["--exec"]
 
-    def restart(self, pid, getpid, start_thread):
+    def check_restart(self, pid, getpid, start_thread):
         # Ensure it's not started yet.
         assert start_thread.isAlive()
 
-    def check(self,
+    def check_clients(self,
             pid, getpid, start_thread,
             old_clients, new_clients,
             old_cookie, new_cookie):
