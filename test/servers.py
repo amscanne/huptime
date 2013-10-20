@@ -185,7 +185,7 @@ class ThreadPoolServer(PoolServer):
         t.daemon = True
         t.start()
 
-class ProcessPoolServer(PoolServer, ProcessServer):
+class ProcessPoolServer(PoolServer):
 
     def _create(self, target):
         pid = os.fork()
