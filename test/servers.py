@@ -37,7 +37,11 @@ class Server(object):
         self._clients = 0
         assert self._cookie
 
-    def bind(self, host=DEFAULT_HOST, port=DEFAULT_PORT):
+    def bind(self, host=None, port=None):
+        if host is None:
+            host = DEFAULT_HOST
+        if port is None:
+            port = DEFAULT_PORT
         sys.stderr.write("%s: bind()\n" % self)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind((host, port))
@@ -46,7 +50,9 @@ class Server(object):
         sys.stderr.write("%s: close()\n" % self)
         self._sock.close()
 
-    def listen(self, backlog=DEFAULT_BACKLOG):
+    def listen(self, backlog=None):
+        if backlog is None:
+            backlog = DEFAULT_BACKLOG
         sys.stderr.write("%s: listen()\n" % self)
         self._sock.listen(backlog)
 
@@ -173,7 +179,9 @@ class PoolServer(SimpleServer):
     def _create(self, target):
         raise NotImplementedError()
 
-    def run(self, N=DEFAULT_N):
+    def run(self, N=None):
+        if N is None:
+            N = DEFAULT_N
         for _ in range(N):
             self._create(target=super(PoolServer, self).run)
         super(PoolServer, self).run()

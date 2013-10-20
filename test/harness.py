@@ -18,29 +18,30 @@ import re
 import proxy
 import client
 
-def proxy_starter(proxy):
+def proxy_starter(proxy, host=None, port=None, backlog=None):
     def fn():
         proxy._wait()
-        proxy.bind()
-        proxy.listen()
+        proxy.bind(host=host, port=port)
+        proxy.listen(backlog=backlog)
         proxy._call("run")
     return fn
 
 class Harness(object):
 
-    def __init__(self, mode_class, server_class, cookie=None):
+    def __init__(self, mode_class, server_class, cookie=None, **kwargs):
 
         super(Harness, self).__init__()
         self._cookie_file = tempfile.NamedTemporaryFile()
         self._set_cookie(cookie)
         self._mode = mode_class()
+        self._kwargs = kwargs
         self._proxy = proxy.ProxyClient(
             self._mode,
             server_class,
             self._cookie_file.name)
 
         # Run the server normally.
-        proxy_starter(self._proxy)()
+        proxy_starter(self._proxy, **self._kwargs)()
 
     def __getattr__(self, attr):
         return getattr(self._proxy, attr)
@@ -54,11 +55,11 @@ class Harness(object):
         self._cookie_file.write(self._cookie)
         self._cookie_file.flush()
 
-    def client(self):
-        return client.Client()
-
-    def clients(self):
-        return client.Clients()
+    def clients(self, **kwargs):
+        return client.Clients(
+            host=self._kwargs.get("host"),
+            port=self._kwargs.get("port"),
+            **kwargs)
 
     def restart(self, cookie=None):
         # Connect clients.
@@ -79,7 +80,8 @@ class Harness(object):
         self._proxy.restart()
 
         # Whenever it's ready, restart the server.
-        start_thread = threading.Thread(target=proxy_starter(self._proxy))
+        start_thread = threading.Thread(
+            target=proxy_starter(self._proxy, **self._kwargs))
         start_thread.daemon = True
         start_thread.start()
 

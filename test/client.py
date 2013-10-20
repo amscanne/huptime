@@ -66,9 +66,11 @@ class ClientThread(threading.Thread):
 
 class Clients(object):
 
-    def __init__(self, n=DEFAULT_CLIENTS, host=None, port=None):
+    def __init__(self, N=None, host=None, port=None):
         super(Clients, self).__init__()
-        self._clients = map(lambda x: ClientThread(host=host, port=port), range(n))
+        if N is None:
+            N = DEFAULT_CLIENTS
+        self._clients = map(lambda x: ClientThread(host=host, port=port), range(N))
 
     def verify(self, valid_cookies):
         for c in self._clients:
