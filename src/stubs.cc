@@ -56,6 +56,7 @@ setup(void)
     GET_LIBC_FUNCTION(dup);
     GET_LIBC_FUNCTION(dup2);
     GET_LIBC_FUNCTION(dup3);
+    GET_LIBC_FUNCTION(exit);
     #undef GET_LIBC_FUNCTION
 
     impl_init();
@@ -127,6 +128,13 @@ stub_dup3(int fd, int fd2, int flags)
     return impl.dup3(fd, fd2, flags);
 }
 
+static void
+stub_exit(int status)
+{
+    setup();
+    impl.exit(status);
+}
+
 /* Exports name as aliasname in .dynsym. */
 #define PUBLIC_ALIAS(name, aliasname)                                       \
     typeof(name) aliasname __attribute__ ((alias (#name)))                  \
@@ -142,27 +150,32 @@ stub_dup3(int fd, int fd2, int flags)
     SYMBOL_VERSION(name, "@", default_)
 
 /* Exports stub_ ##name as name@@GLIBC_MAJOR.MINOR.PATCH. */
-#define GLIBC_VERSION(name, major, minor, patch)                   \
+#define GLIBC_VERSION(name, major, minor)              \
+    SYMBOL_VERSION(name, "GLIBC_" # major "." # minor, \
+                   glibc_ ## major ## minor)
+#define GLIBC_VERSION2(name, major, minor, patch)                  \
     SYMBOL_VERSION(name, "GLIBC_" # major "." # minor "." # patch, \
-                   glibc_ ## major ## minor ## patch)              \
+                   glibc_ ## major ## minor ## patch)
 
 GLIBC_DEFAULT(bind)
-GLIBC_VERSION(bind, 2, 2, 5)
+GLIBC_VERSION2(bind, 2, 2, 5)
 GLIBC_DEFAULT(listen)
-GLIBC_VERSION(listen, 2, 2, 5)
+GLIBC_VERSION2(listen, 2, 2, 5)
 GLIBC_DEFAULT(accept)
-GLIBC_VERSION(accept, 2, 2, 5)
+GLIBC_VERSION2(accept, 2, 2, 5)
 GLIBC_DEFAULT(accept4)
-GLIBC_VERSION(accept4, 2, 2, 5)
+GLIBC_VERSION2(accept4, 2, 2, 5)
 GLIBC_DEFAULT(close)
-GLIBC_VERSION(close, 2, 2, 5)
+GLIBC_VERSION2(close, 2, 2, 5)
 GLIBC_DEFAULT(fork)
-GLIBC_VERSION(fork, 2, 2, 5)
+GLIBC_VERSION2(fork, 2, 2, 5)
 GLIBC_DEFAULT(dup)
-GLIBC_VERSION(dup, 2, 2, 5)
+GLIBC_VERSION2(dup, 2, 2, 5)
 GLIBC_DEFAULT(dup2)
-GLIBC_VERSION(dup2, 2, 2, 5)
+GLIBC_VERSION2(dup2, 2, 2, 5)
 GLIBC_DEFAULT(dup3)
-GLIBC_VERSION(dup3, 2, 2, 5)
+GLIBC_VERSION2(dup3, 2, 2, 5)
+GLIBC_DEFAULT(exit)
+GLIBC_VERSION(exit, 2, 0)
 
 }

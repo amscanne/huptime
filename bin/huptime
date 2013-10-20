@@ -27,11 +27,21 @@ MULTI_COUNT = 1
 MULTI_PIDS = []
 
 def usage():
-    print "usage: %s [--fork|--exec] [--multi=<N>] [--unlink=<file>] [--debug] [--] <command...>" % sys.argv[0]
-    print "  or   %s [--debug] --status <command...>" % sys.argv[0]
-    print "  or   %s [--debug] --restart <command...>" % sys.argv[0]
-    print "  or   %s [--debug] --stop <command...>" % sys.argv[0]
+    print "usage: %s [options] [--] <command...>" % sys.argv[0]
+    print "  or   %s [options] [--] --status <command...>" % sys.argv[0]
+    print "  or   %s [options] [--] --restart <command...>" % sys.argv[0]
+    print "  or   %s [options] [--] --stop <command...>" % sys.argv[0]
     print "  or   %s --help" % sys.argv[0]
+    print
+    print "where options are:"
+    print
+    print "   --fork                Run using fork mode (exclusive of --exec)."
+    print "   --exec                Run using exec mode (exclusive of --fork)."
+    print "   --revive              Restart the process on exit."
+    print "   --multi=<N>           Run N processes (and wait for exit)."
+    print "   --unlink=<file>       Unlink the given file on restart."
+    print "   --debug               Run using debug output."
+    print
 
 def debug(msg):
     if HUPTIME_DEBUG:

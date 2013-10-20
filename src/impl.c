@@ -52,6 +52,9 @@ static char *to_unlink = NULL;
 /* Multi mode? */
 static bool_t multi_mode = FALSE;
 
+/* Revive mode? */
+static bool_t revive_mode = FALSE;
+
 /* Whether or not our HUP handler will exit or restart. */
 static pid_t master_pid = (pid_t)-1;
 
@@ -146,6 +149,7 @@ impl_exec(void)
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
+    sigaddset(&set, SIGTERM);
     sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_BLOCK, &set, NULL);
 
@@ -167,7 +171,7 @@ impl_exec(void)
     if( pipe(pipes) < 0 )
     {
         DEBUG("Unable to create pipes?");
-        _exit(1);
+        libc.exit(1);
     }
 
     /* Stuff information into the pipe. */
@@ -229,7 +233,7 @@ impl_exec(void)
 
     /* Bail. Should never reach here. */
     DEBUG("Things went horribly wrong!");
-    _exit(1);
+    libc.exit(1);
 }
 
 void
@@ -247,7 +251,7 @@ impl_exit_check(void)
                  * presumably already a child process handling 
                  * new incoming connections. */
                 DEBUG("Goodbye!");
-                _exit(0);
+                libc.exit(0);
                 break;
 
             case EXEC:
@@ -387,6 +391,7 @@ impl_init(void)
 {
     const char* mode_env = getenv("HUPTIME_MODE");
     const char* multi_env = getenv("HUPTIME_MULTI");
+    const char* revive_env = getenv("HUPTIME_REVIVE");
     const char* debug_env = getenv("HUPTIME_DEBUG");
     const char* pipe_env = getenv("HUPTIME_PIPE");
 
@@ -424,7 +429,7 @@ impl_init(void)
         else
         {
             fprintf(stderr, "Unknown exit strategy.");
-            _exit(1);
+            libc.exit(1);
         }
     }
 
@@ -458,6 +463,12 @@ impl_init(void)
         fprintf(stderr, "(Requires at least Linux 3.9 and recent headers).\n");
     } 
 #endif
+
+    /* Check if we're in revive mode. */
+    if( revive_env != NULL && strlen(revive_env) > 0 )
+    {
+        revive_mode = !strcasecmp(revive_env, "true") ? TRUE : FALSE;
+    }
 
     /* Check if we're a respawn. */
     if( pipe_env != NULL && strlen(pipe_env) > 0 )
@@ -592,6 +603,7 @@ impl_init(void)
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
+    sigaddset(&set, SIGTERM);
     sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_UNBLOCK, &set, NULL);
     DEBUG("Installed signal handlers.");
@@ -1151,6 +1163,18 @@ do_accept_retry(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     return do_accept4_retry(sockfd, addr, addrlen, 0);
 }
 
+static void
+do_exit(int status)
+{
+    if( revive_mode == TRUE )
+    {
+        DEBUG("Reviving...");
+        impl_exec();
+    }
+
+    libc.exit(status);
+}
+
 funcs_t impl =
 {
     .bind = do_bind,
@@ -1162,5 +1186,6 @@ funcs_t impl =
     .dup = do_dup,
     .dup2 = do_dup2,
     .dup3 = do_dup3,
+    .exit = do_exit,
 };
 funcs_t libc;

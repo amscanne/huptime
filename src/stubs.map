@@ -11,3 +11,8 @@ GLIBC_2.2.5 {
         dup3;
     local: *;
 };
+GLIBC_2.0 {
+    global:
+        exit;
+    local: *;
+};

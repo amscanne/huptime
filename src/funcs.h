@@ -19,6 +19,7 @@ typedef pid_t (*fork_t)(void);
 typedef int (*dup_t)(int fd);
 typedef int (*dup2_t)(int fd, int fd2);
 typedef int (*dup3_t)(int fd, int fd2, int flags);
+typedef void (*exit_t)(int status);
 
 /* A structure containing all functions. */
 typedef struct
@@ -32,6 +33,7 @@ typedef struct
     dup_t dup;
     dup2_t dup2;
     dup3_t dup3;
+    exit_t exit;
 } funcs_t;
 
 #endif
