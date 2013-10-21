@@ -57,14 +57,15 @@ def usage():
     print "   --exec                Run using exec mode (exclusive of --fork)."
     print "   --revive              Restart the process on exit."
     print "   --multi=<N>           Run N processes (and wait for exit)."
+    print "                         This will enable SO_REUSEPORT (needs Linux 3.9+)."
     print "   --unlink=<file>       Unlink the given file on restart."
-    print "   --debug               Run using debug output."
+    print "                         This is useful for pid files."
+    print "   --debug               Print debug output to stderr."
     print
     print "Huptime is distributed in the hope that it will be useful,"
     print "but WITHOUT ANY WARRANTY; without even the implied warranty of"
     print "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the"
     print "GNU General Public License for more details."
-    print
 
 def debug(msg):
     if HUPTIME_DEBUG:
