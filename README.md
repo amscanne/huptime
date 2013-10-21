@@ -4,6 +4,10 @@ High uptime
 Huptime is a tool for achieving zero downtime restarts without the need to
 modify your program in any way.
 
+Although many applications support reloading configurations while running, a
+zero downtime restart allows for upgrading the application code without
+rejecting any clients.
+
 Why?
 ----
 
@@ -11,11 +15,11 @@ With continuous deployment, software can be updated dozens, hundreds or even
 thousands of times per day. It critical that service is not interrupted during
 upgrades.
 
-In an ideal world, all applications would support a mechanism for doing
-zero-downtime restarts. The reality is, many standard frameworks make this
-difficult to do from the top down. For example, if you're using writing a
-python application using a WSGI framework, it may very painful and involve
-hacking libraries or monkey patching.
+In an ideal world, all applications would support a mechanism for doing zero
+downtime restarts. The reality is that many standard frameworks make this
+difficult to do from the top down. It's not practical to plumb this
+functionality through every layer, particularly for applications over which you
+have no control.
 
 Compound this with the fact that many applications consist of many different
 small components (written using different languages and frameworks), and you've
@@ -167,7 +171,7 @@ To enable this option, simply specify *--revive* on the huptime command line.
 
 For example:
 
-    # Start a zero-downtime netcat.
+    # Start a zero downtime netcat.
     huptime --revive nc -l 9000 < message.txt &
 
     # Clients will always find a server...
@@ -183,10 +187,10 @@ It tracks open file descriptors by intercepting calls to `bind` and `accept`
 intelligently `exec` a new copy of the program *without* closing any bound
 sockets and without requiring any changes to the program.
 
-Note that this is not simply a restart, but may be a new version of the
-application, with config changes and code changes.
+Note that this is not simply a reload but rather a new version of the
+application with config changes and code changes (as both now appear on disk).
 
-When the new copy of the program tries to bind the same socket, we will
+When the new copy of the program tries to bind the same socket, huptime will
 silently replace it with the still-open socket from the previous version.
 
 There are two fundamental modes of operation:
@@ -213,7 +217,7 @@ queueing requests to the bound socket (in the kernel) and wait until all
 outstanding requests are finished. Only when existing requests are finished
 will the program restart.
 
-This may not work properly if requests are not bound in how long they will
+This may not work properly if requests are not bounded in how long they will
 take. This may also lead to high response times for some clients during the
 restart. However, this approach will play well with supervisors.
 
@@ -239,5 +243,5 @@ What's up with the name?
 ------------------------
 
 It's clever! Services are often reloaded using `SIGHUP`. The point of this tool
-is to maximize uptime by enabling zero-downtime restarts via `SIGHUP`. It's
+is to maximize uptime by enabling zero downtime restarts via `SIGHUP`. It's
 your high availabilibuddy!
