@@ -98,7 +98,7 @@ programs that are *dynamically linked* against a *modern libc*.
 
 Most modern dynamic languages (python, ruby, node, etc.) fall into this
 category. Most C/C++ programs also fall into this category. A unique exception
-is `go`, which invokes system calls directly and uses only static linking.
+is *go*, which invokes system calls directly and uses only static linking.
 (For the record, I am a big fan of this approach. However, both have their
 merits).
 
@@ -110,7 +110,7 @@ What else does it do?
 * Transparent multi-binding (running the same service multiple times)
 
 If you are running Linux 3.9+, then you can also easily enable pools of
-processes by starting your services with the `--multi` option. Again, this does
+processes by starting your services with the *--multi* option. Again, this does
 not require any modification on your application.
 
 For example:
@@ -159,9 +159,11 @@ Want to manage the number of running scripts yourself?
 
 If you've got a stubborn program and you want to restart it automatically when
 it fails, you should really fix your program. Barring that, you should use a
-supervisor like `upstart`. Barring *that* (you don't care about the sensible
+supervisor like upstart. Barring *that* (you don't care about the sensible
 features that a supervisor provides and want zero downtime restarts), you can
 use huptime.
+
+To enable this option, simply specify *--revive* on the huptime command line.
 
 For example:
 
@@ -184,7 +186,7 @@ sockets and without requiring any changes to the program.
 Note that this is not simply a restart, but may be a new version of the
 application, with config changes and code changes.
 
-When the new copy of the program tries to `bind` the same socket, we will
+When the new copy of the program tries to bind the same socket, we will
 silently replace it with the still-open socket from the previous version.
 
 There are two fundamental modes of operation:
@@ -196,8 +198,8 @@ and `exec` a new copy of the application. This results in less downtime, as new
 requests can start being served immediately, while old requests are still being
 finished by the original program.
 
-This may not integrate cleanly with supervisor processes like `upstart`
-however, which depend on the `PID` of the application staying constant.
+This may not integrate cleanly with supervisor processes like upstart however,
+which depend on the PID of the application staying constant.
 
 This may also present issues for some applications that check pidfiles or
 contain internal mechanisms for preventing two copies of themselves from
@@ -214,6 +216,10 @@ will the program restart.
 This may not work properly if requests are not bound in how long they will
 take. This may also lead to high response times for some clients during the
 restart. However, this approach will play well with supervisors.
+
+For example, if you are using upstart, you can do the restart as:
+
+    upstart reload service
 
 Limitations
 -----------
