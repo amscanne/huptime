@@ -40,23 +40,36 @@ class Mode(object):
         cmd.extend(args)
         cmd.extend(cmdline)
         sys.stderr.write("exec: %s\n" % " ".join(cmd))
-        proc = subprocess.Popen(cmd, **kwargs)
-        t = threading.Thread(target=lambda: proc.wait())
-        t.daemon = True
-        t.start()
-        return t
+        return subprocess.Popen(cmd, **kwargs)
 
     def _args(self):
         raise NotImplementedError()
 
     def start(self, cmdline, **kwargs):
-        self._run(cmdline, **kwargs)
+        proc = self._run(cmdline, **kwargs)
+        t = threading.Thread(target=lambda: proc.wait())
+        t.daemon = True
+        t.start()
 
     def stop(self, cmdline):
-        self._run(["--stop"] + cmdline).join()
+        proc = self._run(["--stop"] + cmdline)
+        proc.wait()
 
     def restart(self, cmdline):
-        self._run(["--restart"] + cmdline).join()
+        proc = self._run(["--restart"] + cmdline)
+        proc.wait()
+
+    def status(self, cmdline):
+        proc = self._run(
+            ["--restart"] + cmdline,
+            stdout=subprocess.PIPE)
+        proc.wait()
+        if proc.returncode != 0:
+            return []
+        else:
+            return map(
+                lambda x: x.strip(),
+                proc.stdout.readlines())
 
     def check_clients(self,
             start_thread,
