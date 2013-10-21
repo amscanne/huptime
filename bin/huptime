@@ -23,6 +23,7 @@ import sys
 import signal
 import re
 import copy
+import time
 
 REALPATH = os.path.realpath(sys.argv[0])
 BINDIR = os.path.dirname(REALPATH)
@@ -44,6 +45,8 @@ HUPTIME_DEBUG = False
 MULTI_COUNT = 1
 MULTI_PIDS = []
 
+STOP_TIMEOUT = 10.0
+
 def usage():
     print "usage: huptime [options] [--] <command...>"
     print "  or   huptime [options] [--] --status <command...>"
@@ -61,6 +64,8 @@ def usage():
     print "   --unlink=<file>       Unlink the given file on restart."
     print "                         This is useful for pid files."
     print "   --debug               Print debug output to stderr."
+    print "   --timeout=<T>         Timeout between TERM and KILL for --stop."
+    print "                         The default is %2.2f seconds." % STOP_TIMEOUT
     print
     print "Huptime is distributed in the hope that it will be useful,"
     print "but WITHOUT ANY WARRANTY; without even the implied warranty of"
@@ -93,6 +98,8 @@ while len(ARGS) > 0:
         elif arg == "multi" and value:
             HUPTIME_MULTI = True
             MULTI_COUNT = value
+        elif arg == "timeout" and value:
+            STOP_TIMEOUT = value
         elif arg == "revive" and not value:
             HUPTIME_REVIVE = True
         elif arg == "debug" and not value:
@@ -123,10 +130,19 @@ if len(ARGS) == 0:
     sys.exit(0)
 
 try:
-    if int(MULTI_COUNT) <= 0:
+    MULTI_COUNT = int(MULTI_COUNT)
+    if MULTI_COUNT <= 0:
         raise ValueError()
 except ValueError:
     print "Invalid value for --multi (should be positive integer)."
+    sys.exit(1)
+
+try:
+    STOP_TIMEOUT = float(STOP_TIMEOUT)
+    if STOP_TIMEOUT < 0.0:
+        raise ValueError()
+except ValueError:
+    print "Invalid value for --timeout (should be non-negative)."
     sys.exit(1)
 
 if STATUS or RESTART or STOP:
@@ -159,6 +175,8 @@ if STATUS or RESTART or STOP:
             elif (len(cmd) >= 1+len(ARGS) and cmd[1:1+len(ARGS)] == ARGS) or \
                  (len(cmd) >= 2+len(ARGS) and cmd[2:2+len(ARGS)] == ARGS):
                 inter_matches.append(pid)
+        except KeyboardInterrupt:
+            sys.exit(1)
         except:
             continue
 
@@ -187,7 +205,7 @@ if STATUS or RESTART or STOP:
                 debug("Restarting PID %d..." % pid)
                 os.kill(pid, signal.SIGHUP)
             elif STOP:
-                debug("Killing PID %d..." % pid)
+                debug("Killing PID %d (TERM)..." % pid)
                 os.kill(pid, signal.SIGTERM)
         except OSError:
             continue
@@ -201,6 +219,7 @@ if STATUS or RESTART or STOP:
     # exists. When the SIGHUP signal is unmasked,
     # know that the restart has been processed.
     for pid in active_pids:
+        start_time = time.time()
         while True:
             try:
                 data = open("/proc/%d/status" % pid, 'r').read().split("\n")
@@ -218,6 +237,14 @@ if STATUS or RESTART or STOP:
                                 break
                     if is_restarted:
                         break
+                elif STOP:
+                    now = time.time()
+                    if now - start_time > STOP_TIMEOUT:
+                        debug("Killing PID %d (KILL)..." % pid)
+                        os.kill(pid, signal.SIGKILL)
+                        start_time = now
+            except KeyboardInterrupt:
+                sys.exit(1)
             except:
                 break
         debug("Restart complete for PID %d." % pid)
