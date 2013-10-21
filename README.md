@@ -107,6 +107,8 @@ merits).
 What else does it do?
 ---------------------
 
+* Transparent multi-binding (running the same service multiple times)
+
 If you are running Linux 3.9+, then you can also easily enable pools of
 processes by starting your services with the `--multi` option. Again, this does
 not require any modification on your application.
@@ -152,6 +154,22 @@ Want to manage the number of running scripts yourself?
     for pid in $pids; do
         wait $pid;
     done
+
+* Transparent restart on exit
+
+If you've got a stubborn program and you want to restart it automatically when
+it fails, you should really fix your program. Barring that, you should use a
+supervisor like `upstart`. Barring *that* (you don't care about the sensible
+features that a supervisor provides and want zero downtime restarts), you can
+use huptime.
+
+For example:
+
+    # Start a zero-downtime netcat.
+    huptime --revive nc -l 9000 < message.txt &
+
+    # Clients will always find a server...
+    nc localhost 9000
 
 How does it work?
 -----------------
