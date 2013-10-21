@@ -9,8 +9,9 @@ DESTDIR ?= /usr/local
 
 CC := gcc
 CXX := g++
-CFLAGS ?= -Wall -fPIC -std=c99 -D_GNU_SOURCE
-CXXFLAGS ?= -Wall -fPIC -D_GNU_SOURCE -Wno-unused-function
+OFFSET_FLAGS ?= -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64
+CFLAGS ?= -Wall -fPIC -std=c99 -D_GNU_SOURCE $(OFFSET_FLAGS)
+CXXFLAGS ?= -Wall -fPIC -D_GNU_SOURCE -Wno-unused-function $(OFFSET_FLAGS)
 LDFLAGS ?= -shared
 
 default: test

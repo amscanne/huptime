@@ -538,6 +538,12 @@ impl_init(void)
                     do_close(info->saved.fd);
                 }
 
+                /* Return the offset (ignore failure). */
+                if( info->saved.offset != (off_t)-1 )
+                {
+                    lseek(fd, info->saved.offset, SEEK_SET);
+                }
+
                 /* Move the SAVED fd back. */
                 libc.dup2(fd, info->saved.fd);
                 DEBUG("Restored fd %d.", info->saved.fd);
@@ -570,8 +576,10 @@ impl_init(void)
                 if( saved_info != NULL )
                 {
                     saved_info->saved.fd = fd;
+                    saved_info->saved.offset = lseek(fd, 0, SEEK_CUR);
                     fd_save(newfd, saved_info);
-                    DEBUG("Saved fd %d.", newfd);
+                    DEBUG("Saved fd %d (offset %ld).",
+                        fd, saved_info->saved.offset);
                 }
             }
         }

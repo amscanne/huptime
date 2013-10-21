@@ -79,6 +79,7 @@ typedef
 struct savedinfo
 {
     int fd;
+    off_t offset;
 } savedinfo_t;
 
 typedef

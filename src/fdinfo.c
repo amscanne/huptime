@@ -101,6 +101,10 @@ info_decode(int pipe, int *fd, fdinfo_t **info)
             exactly(read, pipe,
                     &(*info)->saved.fd,
                     sizeof((*info)->saved.fd));
+            /* Read the original offset. */
+            exactly(read, pipe,
+                    &(*info)->saved.offset,
+                    sizeof((*info)->saved.offset));
             break;
 
         case TRACKED:
@@ -136,6 +140,10 @@ info_encode(int pipe, int fd, fdinfo_t* info)
             exactly(write, pipe,
                     &info->saved.fd,
                     sizeof(info->saved.fd));
+            /* Write the original offset. */
+            exactly(write, pipe,
+                    &info->saved.offset,
+                    sizeof(info->saved.offset));
             break;
 
         case TRACKED:
