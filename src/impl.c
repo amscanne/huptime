@@ -772,7 +772,15 @@ impl_exit_start(void)
                  * ensure that the parent won't mess 
                  * with them anymore. Note that we still
                  * have a copy as all SAVED descriptors. */
-                if( info->saved.fd == 2 ) continue;
+                if( info->saved.fd == 2 )
+                {
+                    /* We treat stderr special.
+                     * Assuming logging will go here, we
+                     * allow the parent process to continue
+                     * writing to this file (and hope that
+                     * it's open in APPEND mode, etc.). */
+                    continue;
+                }
                 int nullfd = open("/dev/null", O_RDWR);
                 do_dup2(nullfd, info->saved.fd);
                 libc.close(nullfd);
