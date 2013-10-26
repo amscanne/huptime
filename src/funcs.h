@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 
 /* Typedefs for libc functions that we override. */
 typedef int (*bind_t)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
@@ -37,6 +38,8 @@ typedef int (*dup_t)(int fd);
 typedef int (*dup2_t)(int fd, int fd2);
 typedef int (*dup3_t)(int fd, int fd2, int flags);
 typedef void (*exit_t)(int status);
+typedef pid_t (*wait_t)(void *status);
+typedef pid_t (*waitpid_t)(pid_t pid, int *status, int options); 
 
 /* A structure containing all functions. */
 typedef struct
@@ -51,6 +54,8 @@ typedef struct
     dup2_t dup2;
     dup3_t dup3;
     exit_t exit;
+    wait_t wait;
+    waitpid_t waitpid;
 } funcs_t;
 
 #endif

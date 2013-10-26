@@ -72,6 +72,9 @@ static bool_t multi_mode = FALSE;
 /* Revive mode? */
 static bool_t revive_mode = FALSE;
 
+/* Wait mode? */
+static bool_t wait_mode = FALSE;
+
 /* Whether or not our HUP handler will exit or restart. */
 static pid_t master_pid = (pid_t)-1;
 
@@ -258,6 +261,29 @@ impl_exit_check(void)
 {
     if( is_exiting == TRUE && total_tracked == 0 )
     {
+        if( wait_mode == TRUE )
+        {
+            /* Check for any active child processes.
+             * NOTE: Because we are using waitid() here, and
+             * that allows us to specify WNOWAIT, the child
+             * will stay in a waitable state for to be reaped
+             * whenever the actual program wants to. */
+            do {
+                siginfo_t info;
+                int rval = waitid(P_ALL, 0, &info, WNOHANG|WNOWAIT);
+                if( rval < 0 && errno == EINTR )
+                {
+                    continue;
+                }
+                if( rval >= 0 || (rval < 0 && errno != ECHILD) )
+                {
+                    /* There are still active child processes. */
+                    return;
+                }
+                break;
+            } while( 1 );
+        }
+
         DEBUG("No active connections, finishing exit.");
 
         switch( exit_strategy )
@@ -419,6 +445,7 @@ impl_init(void)
     const char* revive_env = getenv("HUPTIME_REVIVE");
     const char* debug_env = getenv("HUPTIME_DEBUG");
     const char* pipe_env = getenv("HUPTIME_PIPE");
+    const char* wait_env = getenv("HUPTIME_WAIT");
 
     if( debug_env != NULL && strlen(debug_env) > 0 )
     {
@@ -493,6 +520,12 @@ impl_init(void)
     if( revive_env != NULL && strlen(revive_env) > 0 )
     {
         revive_mode = !strcasecmp(revive_env, "true") ? TRUE : FALSE;
+    }
+
+    /* Check if we are in wait mode. */
+    if( wait_env != NULL && strlen(wait_env) > 0 )
+    {
+        wait_mode = !strcasecmp(wait_env, "true") ? TRUE : FALSE;
     }
 
     /* Check if we're a respawn. */
@@ -875,7 +908,7 @@ impl_restart(void)
 void*
 impl_restart_thread(void* arg)
 {
-    /* See note above in sighanlder(). */
+    /* See note above in sighandler(). */
     impl_restart();
     return arg;
 }
@@ -1216,6 +1249,26 @@ do_exit(int status)
     libc.exit(status);
 }
 
+static pid_t
+do_wait(void *status)
+{
+    pid_t rval = libc.wait(status);
+    L();
+    impl_exit_check();
+    U();
+    return rval;
+}
+
+static pid_t
+do_waitpid(pid_t pid, int *status, int options)
+{
+    pid_t rval = libc.waitpid(pid, status, options);
+    L();
+    impl_exit_check();
+    U();
+    return rval;
+}
+
 funcs_t impl =
 {
     .bind = do_bind,
@@ -1228,5 +1281,7 @@ funcs_t impl =
     .dup2 = do_dup2,
     .dup3 = do_dup3,
     .exit = do_exit,
+    .wait = do_wait,
+    .waitpid = do_waitpid,
 };
 funcs_t libc;

@@ -74,6 +74,8 @@ setup(void)
     GET_LIBC_FUNCTION(dup2);
     GET_LIBC_FUNCTION(dup3);
     GET_LIBC_FUNCTION(exit);
+    GET_LIBC_FUNCTION(wait);
+    GET_LIBC_FUNCTION(waitpid);
     #undef GET_LIBC_FUNCTION
 
     impl_init();
@@ -152,6 +154,20 @@ stub_exit(int status)
     impl.exit(status);
 }
 
+static pid_t
+stub_wait(void *status)
+{
+    setup();
+    return impl.wait(status);
+}
+
+static pid_t
+stub_waitpid(pid_t pid, int *status, int options)
+{
+    setup();
+    return impl.waitpid(pid, status, options);
+}
+
 /* Exports name as aliasname in .dynsym. */
 #define PUBLIC_ALIAS(name, aliasname)                                       \
     typeof(name) aliasname __attribute__ ((alias (#name)))                  \
@@ -194,5 +210,9 @@ GLIBC_DEFAULT(dup3)
 GLIBC_VERSION2(dup3, 2, 2, 5)
 GLIBC_DEFAULT(exit)
 GLIBC_VERSION(exit, 2, 0)
+GLIBC_DEFAULT(wait)
+GLIBC_VERSION2(wait, 2, 2, 5)
+GLIBC_DEFAULT(waitpid)
+GLIBC_VERSION2(waitpid, 2, 2, 5)
 
 }

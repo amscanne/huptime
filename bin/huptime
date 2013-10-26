@@ -39,6 +39,7 @@ STOP = False
 HUPTIME_MODE = "fork"
 HUPTIME_MULTI = False
 HUPTIME_REVIVE = False
+HUPTIME_WAIT = False
 HUPTIME_UNLINK = ""
 HUPTIME_DEBUG = False
 
@@ -59,6 +60,7 @@ def usage():
     print "   --fork                Run using fork mode (exclusive of --exec)."
     print "   --exec                Run using exec mode (exclusive of --fork)."
     print "   --revive              Restart the process on exit."
+    print "   --wait                Wait for child processes to finish."
     print "   --multi=<N>           Run N processes (and wait for exit)."
     print "                         This will enable SO_REUSEPORT (needs Linux 3.9+)."
     print "   --unlink=<file>       Unlink the given file on restart."
@@ -102,6 +104,8 @@ while len(ARGS) > 0:
             STOP_TIMEOUT = value
         elif arg == "revive" and not value:
             HUPTIME_REVIVE = True
+        elif arg == "wait" and not value:
+            HUPTIME_WAIT = True
         elif arg == "debug" and not value:
             HUPTIME_DEBUG = True
         elif arg == "unlink" and value:
@@ -254,6 +258,7 @@ else:
     debug("Unlink is %s." % HUPTIME_UNLINK)
     debug("Multi is %s." % HUPTIME_MULTI)
     debug("Revive is %s." % HUPTIME_REVIVE)
+    debug("Wait is %s." % HUPTIME_WAIT)
 
     ENV = copy.copy(os.environ)
     ENV["LD_PRELOAD"] = SOFILE
@@ -262,6 +267,7 @@ else:
     ENV["HUPTIME_UNLINK"] = HUPTIME_UNLINK
     ENV["HUPTIME_MULTI"] = str(HUPTIME_MULTI).lower()
     ENV["HUPTIME_REVIVE"] = str(HUPTIME_REVIVE).lower()
+    ENV["HUPTIME_WAIT"] = str(HUPTIME_WAIT).lower()
 
     if MULTI_COUNT == 1:
         # Execute our new process.
