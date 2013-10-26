@@ -1,0 +1,6 @@
+Package: huptime
+Section: extra
+Version: @(VERSION)-@(RELEASE)
+Architecture: @(ARCH)
+Maintainer: Adin Scannell <adin@scannell.ca>
+Description: Utility for zero downtime restart of unmodified applications.

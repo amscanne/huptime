@@ -2,3 +2,7 @@ lib/*
 src/*.o
 test/*.pyc
 test/__pycache__
+rpmbuild/
+debbuild/
+*.deb
+*.rpm

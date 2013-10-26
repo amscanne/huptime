@@ -619,8 +619,8 @@ impl_init(void)
                     saved_info->saved.fd = fd;
                     saved_info->saved.offset = lseek(fd, 0, SEEK_CUR);
                     fd_save(newfd, saved_info);
-                    DEBUG("Saved fd %d (offset %ld).",
-                        fd, saved_info->saved.offset);
+                    DEBUG("Saved fd %d (offset %lld).",
+                        fd, (long long int)saved_info->saved.offset);
                 }
             }
         }

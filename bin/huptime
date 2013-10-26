@@ -24,12 +24,16 @@ import signal
 import re
 import copy
 import time
+import traceback
 
 REALPATH = os.path.realpath(sys.argv[0])
 BINDIR = os.path.dirname(REALPATH)
 BASEDIR = os.path.dirname(BINDIR)
 LIBDIR = os.path.join(BASEDIR, "lib", "huptime")
 SOFILE = os.path.join(LIBDIR, "huptime.so")
+
+# The version (injected by the build).
+VERSION = "@(VERSION)"
 
 # Defaults.
 STATUS = False
@@ -57,6 +61,7 @@ def usage():
     print
     print "where options are:"
     print
+    print "   --version             Print the version and exit."
     print "   --fork                Run using fork mode (exclusive of --exec)."
     print "   --exec                Run using exec mode (exclusive of --fork)."
     print "   --revive              Restart the process on exit."
@@ -119,6 +124,9 @@ while len(ARGS) > 0:
             RESTART = True
         elif arg == "stop" and not value:
             STOP = True
+        elif arg == "version" and not value:
+            print VERSION
+            sys.exit(0)
         else:
             usage()
             sys.exit(1)
@@ -269,10 +277,18 @@ else:
     ENV["HUPTIME_REVIVE"] = str(HUPTIME_REVIVE).lower()
     ENV["HUPTIME_WAIT"] = str(HUPTIME_WAIT).lower()
 
+    def do_exec():
+        try:
+            os.execvpe(ARGS[0], ARGS, ENV)
+        except Exception as e:
+            sys.stderr.write("huptime: %s\n" % str(e))
+            if HUPTIME_DEBUG:
+                traceback.print_exc()
+        sys.exit(1)
+
     if MULTI_COUNT == 1:
         # Execute our new process.
-        os.execvpe(ARGS[0], ARGS, ENV)
-        sys.exit(1)
+        do_exec()
 
     else:
         # Execute many processes.
@@ -284,8 +300,7 @@ else:
         for _ in range(MULTI_COUNT):
             pid = os.fork()
             if pid == 0:
-                os.execvpe(ARGS[0], ARGS, ENV)
-                sys.exit(1)
+                do_exec()
             else:
                 child_pids.append(pid)
 
