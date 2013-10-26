@@ -60,14 +60,17 @@ class ProxyServer(object):
         while True:
             try:
                 obj = pickle.load(in_pipe)
-                sys.stderr.write("proxy: server <- %s\n" % obj)
+                sys.stderr.write("proxy %d: <- %s\n" % (os.getpid(), obj))
             except:
                 # We're done!
                 break
-            def process():
-                self._process(obj, out_pipe)
 
-            t = threading.Thread(target=process)
+            def closure(obj, out_pipe):
+                def fn():
+                    self._process(obj, out_pipe)
+                return fn
+
+            t = threading.Thread(target=closure(obj, out_pipe))
             t.start()
 
     def _process(self, obj, out):
@@ -98,7 +101,7 @@ class ProxyServer(object):
 
         self._cond.acquire()
         try:
-            sys.stderr.write("proxy: server -> %s\n" % robj)
+            sys.stderr.write("proxy %d: -> %s\n" % (os.getpid(), robj))
             out.write(pickle.dumps(robj))
             out.flush()
         finally:
@@ -166,7 +169,7 @@ class ProxyClient(object):
             "args": args,
             "kwargs": kwargs
         }
-        sys.stderr.write("proxy: client -> %s\n" % obj)
+        sys.stderr.write("proxy client: -> %s\n" % obj)
         self._out.write(pickle.dumps(obj))
         self._out.flush()
 
@@ -186,7 +189,7 @@ class ProxyClient(object):
                         return res["result"]
                     else:
                         raise ValueError("no result?")
-                sys.stderr.write("proxy: waiting for %s (%s)...\n" %
+                sys.stderr.write("proxy client: waiting for %s (%s)...\n" %
                     (uniq, method_name))
                 self._cond.wait()
         finally:
@@ -197,7 +200,7 @@ class ProxyClient(object):
         while True:
             try:
                 obj = pickle.load(self._in)
-                sys.stderr.write("proxy: client <- %s\n" % obj)
+                sys.stderr.write("proxy client: <- %s\n" % obj)
             except:
                 # We're done!
                 break

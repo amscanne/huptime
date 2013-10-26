@@ -129,6 +129,7 @@ class Server(object):
 class SimpleServer(Server):
 
     def run(self):
+        sys.stderr.write("%s: run()\n" % self)
         while True:
             client = self.accept()
             while self.handle(client):
@@ -138,6 +139,7 @@ class SimpleServer(Server):
 class EventServer(Server):
    
     def run(self):
+        sys.stderr.write("%s: run()\n" % self)
         self._fdmap = {self._sock.fileno(): self._sock}
         while True:
             rfds, wfds, efds = select.select(self._fdmap.keys(), [], [])
@@ -155,6 +157,7 @@ class EventServer(Server):
 class ThreadServer(Server):
 
     def run(self):
+        sys.stderr.write("%s: run()\n" % self)
         while True:
             client = self.accept()
             # Fire a thread to handle it.
@@ -178,6 +181,7 @@ class ProcessServer(Server):
         super(ProcessServer, self).__init__(*args, **kwargs)
 
     def run(self):
+        sys.stderr.write("%s: run()\n" % self)
         while True:
             client = self.accept()
             pid = os.fork()
@@ -198,6 +202,7 @@ class PoolServer(SimpleServer):
         raise NotImplementedError()
 
     def run(self, N=None):
+        sys.stderr.write("%s: run()\n" % self)
         if N is None:
             N = DEFAULT_N
         for _ in range(N):
