@@ -292,6 +292,14 @@ info_close(int fd, fdinfo_t* info)
     {
         case BOUND:
         case TRACKED:
+            if( info->type == BOUND && revive_mode == TRUE )
+            {
+                /* We don't close bound sockets in revive mode.
+                 * This allows the program to exit "cleanly" and
+                 * we will preserve the socket for the next run. */
+                rval = 0;
+                break;
+            }
             dec_ref(info);
             fd_delete(fd);
             rval = libc.close(fd);
