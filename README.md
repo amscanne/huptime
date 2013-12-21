@@ -8,6 +8,31 @@ Although many applications support reloading configurations while running, a
 zero downtime restart allows for upgrading the application code without
 rejecting any clients.
 
+Basic Example
+-------------
+
+In a terminal, run:
+
+    huptime --exec python -m SimpleHTTPServer &
+    echo $!
+
+Record the result of the echo, we'll call it $PID.
+
+Then, in a second terminal:
+
+    while true; do curl http://localhost:8080 2>/dev/null || echo "fail"; done
+
+Finally, in a third terminal:
+
+    kill -HUP $PID
+
+You should see no "fail" output on the second terminal.
+
+With this reload, the complete code for SimpleHTTPServer is reloaded
+(potentially with changes), but at no time are connections denied or dropped.
+When the new version is up and running again (i.e. it binds the socket and
+calls accept), then pending connections will be processed.
+
 Why?
 ----
 
@@ -23,7 +48,7 @@ have no control.
 
 Compound this with the fact that many applications consist of many different
 small components (written using different languages and frameworks), and you've
-got yourself a mess.
+got yourself a headache.
 
 Because of this complexity, one of first things people have to do is implement
 a custom load balancing tier and a complex upgrade process. Although this is
@@ -41,11 +66,17 @@ Clone the repo:
 
     git clone http://github.com/amscanne/huptime
 
-Install it:
+Install it the old-fashioned way:
 
     cd huptime && sudo make install
 
-If people use it, I'll make distro packages.
+Want Ubuntu & Debian packages?
+
+    cd huptime && make deb && dpkg -i huptime*.deb
+
+How about CentOS or RedHat?
+
+    cd huptime && make rpm && rpm -i huptime*.rpm
 
 How do I use it?
 ----------------
