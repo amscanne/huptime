@@ -45,8 +45,8 @@ class ProxyServer(object):
 
     def run(self):
         # Open our pipes.
-        in_pipe = os.fdopen(3, 'r')
-        out_pipe = os.fdopen(4, 'w')
+        in_pipe = os.fdopen(int(os.getenv("IN_PIPE")), 'r')
+        out_pipe = os.fdopen(int(os.getenv("OUT_PIPE")), 'w')
 
         # Dump our startup message.
         robj = {
@@ -55,6 +55,7 @@ class ProxyServer(object):
         }
         out_pipe.write(pickle.dumps(robj))
         out_pipe.flush()
+        sys.stderr.write("proxy %d: started.\n" % os.getpid())
 
         # Get the call from the other side.
         while True:
@@ -133,8 +134,10 @@ class ProxyClient(object):
         proc_out = os.fdopen(w, 'w')
 
         def _setup_pipes():
-            os.dup2(0, 3)
-            os.dup2(1, 4)
+            in_pipe = os.dup(0)
+            out_pipe = os.dup(1)
+            os.putenv("IN_PIPE", str(in_pipe))
+            os.putenv("OUT_PIPE", str(out_pipe))
             devnull = open("/dev/null", 'r')
             os.dup2(devnull.fileno(), 0)
             devnull.close()
@@ -145,7 +148,7 @@ class ProxyClient(object):
             stdin=proc_in,
             stdout=proc_out,
             preexec_fn=_setup_pipes,
-            close_fds=True)
+            close_fds=False)
 
         proc_in.close()
         proc_out.close()
