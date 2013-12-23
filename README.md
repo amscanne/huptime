@@ -18,9 +18,9 @@ In a terminal, run:
 
 Then, in a second terminal:
 
-    while true; do curl http://localhost:8080 2>/dev/null || echo "fail"; done
+    while true; do curl http://localhost:8000 2>/dev/null || echo "fail"; done
 
-Finally, in a third terminal:
+Finally, in a third terminal (or back in the first):
 
     kill -HUP $PID
 
