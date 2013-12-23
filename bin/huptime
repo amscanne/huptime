@@ -30,6 +30,7 @@ import argparse
 import logging
 
 from functools import partial
+import ctypes
 
 REALPATH = os.path.realpath(sys.argv[0])
 BINDIR = os.path.dirname(REALPATH)
