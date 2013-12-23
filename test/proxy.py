@@ -45,8 +45,12 @@ class ProxyServer(object):
 
     def run(self):
         # Open our pipes.
-        in_pipe = os.fdopen(int(os.getenv("IN_PIPE")), 'r')
-        out_pipe = os.fdopen(int(os.getenv("OUT_PIPE")), 'w')
+        in_pipe = os.fdopen(os.dup(0), 'r')
+        out_pipe = os.fdopen(os.dup(1), 'w')
+        devnull = open("/dev/null", 'r')
+        os.dup2(devnull.fileno(), 0)
+        devnull.close()
+        os.dup2(2, 1)
 
         # Dump our startup message.
         robj = {
@@ -133,22 +137,11 @@ class ProxyClient(object):
         self._in = os.fdopen(r, 'r')
         proc_out = os.fdopen(w, 'w')
 
-        def _setup_pipes():
-            in_pipe = os.dup(0)
-            out_pipe = os.dup(1)
-            os.putenv("IN_PIPE", str(in_pipe))
-            os.putenv("OUT_PIPE", str(out_pipe))
-            devnull = open("/dev/null", 'r')
-            os.dup2(devnull.fileno(), 0)
-            devnull.close()
-            os.dup2(2, 1)
-
         self._mode.start(
             self._cmdline,
             stdin=proc_in,
             stdout=proc_out,
-            preexec_fn=_setup_pipes,
-            close_fds=False)
+            close_fds=True)
 
         proc_in.close()
         proc_out.close()
