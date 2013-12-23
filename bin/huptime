@@ -104,7 +104,7 @@ parser.add_argument('-w', '--wait', action='store_true',
 parser.add_argument('-m', '--multi', type=partial(positive, int),
         default=MULTI_COUNT, metavar='N',
         help='run N processes and wait for exit')
-parser.add_argument('-u', '--unlink', metavar='FILE',
+parser.add_argument('-u', '--unlink', metavar='FILE', default='',
         help='unlink the given file on restart')
 parser.add_argument('-t', '--timeout', type=partial(positive, float),
         default=STOP_TIMEOUT, metavar='T',
