@@ -27,6 +27,7 @@ import time
 import traceback
 import ctypes
 import argparse
+import logging
 
 from functools import partial
 
@@ -39,15 +40,14 @@ SOFILE = os.path.join(LIBDIR, "huptime.so")
 # The version (injected by the build).
 VERSION = "@(VERSION)"
 
-HUPTIME_DEBUG = False
-
 # Defaults
 STOP_TIMEOUT = 10.0
 MULTI_COUNT = 1
 
-def debug(msg):
-    if HUPTIME_DEBUG:
-        print "huptime %d: %s" % (os.getpid(), msg)
+# Setup logging
+logging.basicConfig(level=logging.INFO,
+        format="%(module)s %(process)d: %(message)s")
+logger = logging.getLogger()
 
 # Configure the command line parser
 
@@ -115,8 +115,9 @@ parser.add_argument('command', nargs='+',
 
 # Parse all options.
 ARGS = parser.parse_args()
-HUPTIME_DEBUG = ARGS.debug
 ARGS.mode = 'fork' if ARGS.fork else ('exec' if ARGS.mexec else 'fork')
+if ARGS.debug:
+    logger.setLevel(logging.DEBUG)
 
 if ARGS.status or ARGS.restart or ARGS.stop:
 
@@ -149,9 +150,9 @@ if ARGS.status or ARGS.restart or ARGS.stop:
             continue
 
     if exact_matches:
-        debug("Found exact processes: %s" % exact_matches)
+        logger.debug("Found exact processes: %s" % exact_matches)
     if inter_matches:
-        debug("Found interpreter processes: %s" % inter_matches)
+        logger.debug("Found interpreter processes: %s" % inter_matches)
 
     # Kill the preferred process group in order
     # to do the restart. We grab the pids to block
@@ -162,18 +163,18 @@ if ARGS.status or ARGS.restart or ARGS.stop:
     elif inter_matches:
         active_pids = inter_matches
     else:
-        print "No process found?"
+        logger.info('No process found?')
         sys.exit(1)
 
     for pid in active_pids:
         try:
             if ARGS.status:
-                print pid
+                logger.info(pid)
             elif ARGS.restart:
-                debug("Restarting PID %d..." % pid)
+                logger.debug("Restarting PID %d..." % pid)
                 os.kill(pid, signal.SIGHUP)
             elif ARGS.stop:
-                debug("Killing PID %d (TERM)..." % pid)
+                logger.debug("Killing PID %d (TERM)..." % pid)
                 os.kill(pid, signal.SIGTERM)
         except OSError:
             continue
@@ -208,21 +209,21 @@ if ARGS.status or ARGS.restart or ARGS.stop:
                 elif ARGS.stop:
                     now = time.time()
                     if now - start_time > ARGS.timeout:
-                        debug("Killing PID %d (KILL)..." % pid)
+                        logger.debug("Killing PID %d (KILL)..." % pid)
                         os.kill(pid, signal.SIGKILL)
                         start_time = now
             except KeyboardInterrupt:
                 sys.exit(1)
             except:
                 break
-        debug("Restart complete for PID %d." % pid)
+        logger.debug("Restart complete for PID %d." % pid)
 
 else:
-    debug("Mode is %s." % ARGS.mode)
-    debug("Unlink is %s." % ARGS.unlink)
-    debug("Multi is %s." % ARGS.multi)
-    debug("Revive is %s." % ARGS.revive)
-    debug("Wait is %s." % ARGS.wait)
+    logger.debug("Mode is %s." % ARGS.mode)
+    logger.debug("Unlink is %s." % ARGS.unlink)
+    logger.debug("Multi is %s." % ARGS.multi)
+    logger.debug("Revive is %s." % ARGS.revive)
+    logger.debug("Wait is %s." % ARGS.wait)
 
     ENV = copy.copy(os.environ)
     ENV["LD_PRELOAD"] = SOFILE
@@ -238,9 +239,9 @@ else:
             command = ARGS.command
             os.execvpe(command[0], command, ENV)
         except Exception as e:
-            sys.stderr.write("huptime: %s\n" % str(e))
+            logger.error(str(e))
             if ARGS.debug:
-                traceback.print_exc()
+                logger.exception('Error while launching a new process')
         sys.exit(1)
 
     if ARGS.multi == 1:
