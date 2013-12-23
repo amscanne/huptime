@@ -19,8 +19,8 @@
  * along with Huptime.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _FDINFO_H_
-#define _FDINFO_H_
+#ifndef HUPTIME_FDINFO_H
+#define HUPTIME_FDINFO_H
 
 #include <stdlib.h>
 #include <string.h>

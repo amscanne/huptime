@@ -19,8 +19,8 @@
  * along with Huptime.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _STUBS_H_
-#define _STUBS_H_
+#ifndef HUPTIME_STUBS_H
+#define HUPTIME_STUBS_H
 
 #include "funcs.h"
 

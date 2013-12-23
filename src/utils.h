@@ -19,8 +19,8 @@
  * along with Huptime.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _UTILS_H_
-#define _UTILS_H_
+#ifndef HUPTIME_UTILS_H
+#define HUPTIME_UTILS_H
 
 #include <unistd.h>
 #include <sys/types.h>
