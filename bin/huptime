@@ -26,6 +26,9 @@ import copy
 import time
 import traceback
 import ctypes
+import argparse
+
+from functools import partial
 
 REALPATH = os.path.realpath(sys.argv[0])
 BINDIR = os.path.dirname(REALPATH)
@@ -36,135 +39,86 @@ SOFILE = os.path.join(LIBDIR, "huptime.so")
 # The version (injected by the build).
 VERSION = "@(VERSION)"
 
-# Defaults.
-STATUS = False
-RESTART = False
-STOP = False
-
-HUPTIME_MODE = "fork"
-HUPTIME_MULTI = False
-HUPTIME_REVIVE = False
-HUPTIME_WAIT = False
-HUPTIME_UNLINK = ""
 HUPTIME_DEBUG = False
 
-MULTI_COUNT = 1
-MULTI_PIDS = []
-
+# Defaults
 STOP_TIMEOUT = 10.0
-
-def usage():
-    print "usage: huptime [options] [--] <command...>"
-    print "  or   huptime [options] [--] --status <command...>"
-    print "  or   huptime [options] [--] --restart <command...>"
-    print "  or   huptime [options] [--] --stop <command...>"
-    print "  or   huptime --help"
-    print
-    print "where options are:"
-    print
-    print "   --version             Print the version and exit."
-    print "   --fork                Run using fork mode (exclusive of --exec)."
-    print "   --exec                Run using exec mode (exclusive of --fork)."
-    print "   --revive              Restart the process on exit."
-    print "   --wait                Wait for child processes to finish."
-    print "   --multi=<N>           Run N processes (and wait for exit)."
-    print "                         This will enable SO_REUSEPORT (needs Linux 3.9+)."
-    print "   --unlink=<file>       Unlink the given file on restart."
-    print "                         This is useful for pid files."
-    print "   --debug               Print debug output to stderr."
-    print "   --timeout=<T>         Timeout between TERM and KILL for --stop."
-    print "                         The default is %2.2f seconds." % STOP_TIMEOUT
-    print
-    print "Huptime is distributed in the hope that it will be useful,"
-    print "but WITHOUT ANY WARRANTY; without even the implied warranty of"
-    print "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the"
-    print "GNU General Public License for more details."
+MULTI_COUNT = 1
 
 def debug(msg):
     if HUPTIME_DEBUG:
         print "huptime %d: %s" % (os.getpid(), msg)
 
+# Configure the command line parser
+
+description="Huptime is a tool for achieving zero downtime restarts."
+
+epilog = """\
+Huptime is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warrant of
+MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+"""
+
+parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=description,
+        epilog=epilog)
+
+# Parser types
+
+def positive(type, value):
+    ivalue = type(value)
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError("{0} is an invalid positive value".format(value))
+    return ivalue
+
+# Miscellaneous arguments
+parser.add_argument('-d', '--debug', action='store_true',
+        help='print debug output to stderr.')
+parser.add_argument('--version', action='version',
+        version='%(prog)s ' + VERSION,
+        help='output version information and exit')
+
+# Mode arguments
+mutex_group = parser.add_mutually_exclusive_group()
+mutex_group.add_argument('-e', '--exec', action='store_true', dest='mexec',
+        help='run using exec mode')
+mutex_group.add_argument('-f', '--fork', action='store_true',
+        help='run using fork mode')
+
+# Action arguments
+mutex_group = parser.add_mutually_exclusive_group()
+mutex_group.add_argument('--status', action='store_true',
+        help='check whether a process is still running')
+mutex_group.add_argument('--restart', action='store_true',
+        help='send a SIGHUP signal to a running process')
+mutex_group.add_argument('--stop', action='store_true',
+        help='send a SIGTERM signal to a running process')
+
+# Other arguments
+parser.add_argument('-r', '--revive', action='store_true',
+        help='restart the process on exit')
+parser.add_argument('-w', '--wait', action='store_true',
+        help='wait for child processes to finish')
+parser.add_argument('-m', '--multi', type=partial(positive, int),
+        default=MULTI_COUNT, metavar='N',
+        help='run N processes and wait for exit')
+parser.add_argument('-u', '--unlink', metavar='FILE',
+        help='unlink the given file on restart')
+parser.add_argument('-t', '--timeout', type=partial(positive, float),
+        default=STOP_TIMEOUT, metavar='T',
+        help='timeout between TERM and KILL for --stop (default: {0})'.format(
+            STOP_TIMEOUT))
+parser.add_argument('command', nargs='+',
+        help='the command to be executed')
+
 # Parse all options.
-ARGS = sys.argv[1:]
+ARGS = parser.parse_args()
+HUPTIME_DEBUG = ARGS.debug
+ARGS.mode = 'fork' if ARGS.fork else ('exec' if ARGS.mexec else 'fork')
 
-while len(ARGS) > 0: 
-
-    arg = ARGS[0]
-
-    if arg.startswith("--"):
-        if "=" in arg:
-            arg, value = arg[2:].split("=", 1)
-        else:
-            arg, value = arg[2:], None
-
-        if not arg:
-            break
-        elif arg == "exec" and not value:
-            HUPTIME_MODE = "exec"
-        elif arg == "fork" and not value:
-            HUPTIME_MODE = "fork"
-        elif arg == "multi" and value:
-            HUPTIME_MULTI = True
-            MULTI_COUNT = value
-        elif arg == "timeout" and value:
-            STOP_TIMEOUT = value
-        elif arg == "revive" and not value:
-            HUPTIME_REVIVE = True
-        elif arg == "wait" and not value:
-            HUPTIME_WAIT = True
-        elif arg == "debug" and not value:
-            HUPTIME_DEBUG = True
-        elif arg == "unlink" and value:
-            HUPTIME_UNLINK = value
-        elif arg == "help" and not value:
-            usage()
-            sys.exit(0)
-        elif arg == "status" and not value:
-            STATUS = True
-        elif arg == "restart" and not value:
-            RESTART = True
-        elif arg == "stop" and not value:
-            STOP = True
-        elif arg == "version" and not value:
-            print VERSION
-            sys.exit(0)
-        else:
-            usage()
-            sys.exit(1)
-    else:
-        # Non-option.
-        break
-
-    # Move to the next option.
-    ARGS.pop(0)
-
-if len(ARGS) == 0:
-    usage()
-    sys.exit(0)
-
-try:
-    MULTI_COUNT = int(MULTI_COUNT)
-    if MULTI_COUNT <= 0:
-        raise ValueError()
-except ValueError:
-    print "Invalid value for --multi (should be positive integer)."
-    sys.exit(1)
-
-try:
-    STOP_TIMEOUT = float(STOP_TIMEOUT)
-    if STOP_TIMEOUT < 0.0:
-        raise ValueError()
-except ValueError:
-    print "Invalid value for --timeout (should be non-negative)."
-    sys.exit(1)
-
-if STATUS or RESTART or STOP:
-
-    # Check that the user hasn't passed any
-    # options which we could consider invalid.
-    if len([x for x in (STATUS, RESTART, STOP) if x]) > 1:
-        print "Invalid options: can't specify multi of --status, --restart and --stop."
-        sys.exit(1)
+if ARGS.status or ARGS.restart or ARGS.stop:
 
     # Go through /proc/*/cmdline and find matches.
     # NOTE: Some interpretors may fudge the command
@@ -172,6 +126,7 @@ if STATUS or RESTART or STOP:
     exact_matches = []
     inter_matches = []
 
+    command = ARGS.command
     for pid in os.listdir("/proc"):
         try:
             pid = int(pid)
@@ -181,12 +136,12 @@ if STATUS or RESTART or STOP:
             cmd = open("/proc/%d/cmdline" % pid, 'r').read().split("\0")
 
             # An exact match.
-            if len(cmd) >= len(ARGS) and cmd[:len(ARGS)] == ARGS:
+            if len(cmd) >= len(command) and cmd[:len(command)] == command:
                 exact_matches.append(pid)
 
             # Interpreter match.
-            elif (len(cmd) >= 1+len(ARGS) and cmd[1:1+len(ARGS)] == ARGS) or \
-                 (len(cmd) >= 2+len(ARGS) and cmd[2:2+len(ARGS)] == ARGS):
+            elif (len(cmd) >= 1+len(command) and cmd[1:1+len(command)] == command) or \
+                 (len(cmd) >= 2+len(command) and cmd[2:2+len(command)] == command):
                 inter_matches.append(pid)
         except KeyboardInterrupt:
             sys.exit(1)
@@ -212,19 +167,19 @@ if STATUS or RESTART or STOP:
 
     for pid in active_pids:
         try:
-            if STATUS:
+            if ARGS.status:
                 print pid
-            elif RESTART:
+            elif ARGS.restart:
                 debug("Restarting PID %d..." % pid)
                 os.kill(pid, signal.SIGHUP)
-            elif STOP:
+            elif ARGS.stop:
                 debug("Killing PID %d (TERM)..." % pid)
                 os.kill(pid, signal.SIGTERM)
         except OSError:
             continue
 
     # Nothing more to do.
-    if STATUS:
+    if ARGS.status:
         sys.exit(0)
 
     # Block until the SIGHUP signal has been
@@ -236,7 +191,7 @@ if STATUS or RESTART or STOP:
         while True:
             try:
                 data = open("/proc/%d/status" % pid, 'r').read().split("\n")
-                if RESTART:
+                if ARGS.restart:
                     is_restarted = False
                     for line in data:
                         m = re.match("SigBlk:\s*([0-9a-f]+)", line)
@@ -250,9 +205,9 @@ if STATUS or RESTART or STOP:
                                 break
                     if is_restarted:
                         break
-                elif STOP:
+                elif ARGS.stop:
                     now = time.time()
-                    if now - start_time > STOP_TIMEOUT:
+                    if now - start_time > ARGS.timeout:
                         debug("Killing PID %d (KILL)..." % pid)
                         os.kill(pid, signal.SIGKILL)
                         start_time = now
@@ -263,31 +218,32 @@ if STATUS or RESTART or STOP:
         debug("Restart complete for PID %d." % pid)
 
 else:
-    debug("Mode is %s." % HUPTIME_MODE)
-    debug("Unlink is %s." % HUPTIME_UNLINK)
-    debug("Multi is %s." % HUPTIME_MULTI)
-    debug("Revive is %s." % HUPTIME_REVIVE)
-    debug("Wait is %s." % HUPTIME_WAIT)
+    debug("Mode is %s." % ARGS.mode)
+    debug("Unlink is %s." % ARGS.unlink)
+    debug("Multi is %s." % ARGS.multi)
+    debug("Revive is %s." % ARGS.revive)
+    debug("Wait is %s." % ARGS.wait)
 
     ENV = copy.copy(os.environ)
     ENV["LD_PRELOAD"] = SOFILE
-    ENV["HUPTIME_DEBUG"] = str(HUPTIME_DEBUG).lower()
-    ENV["HUPTIME_MODE"] = HUPTIME_MODE
-    ENV["HUPTIME_UNLINK"] = HUPTIME_UNLINK
-    ENV["HUPTIME_MULTI"] = str(HUPTIME_MULTI).lower()
-    ENV["HUPTIME_REVIVE"] = str(HUPTIME_REVIVE).lower()
-    ENV["HUPTIME_WAIT"] = str(HUPTIME_WAIT).lower()
+    ENV["HUPTIME_DEBUG"] = str(ARGS.debug).lower()
+    ENV["HUPTIME_MODE"] = ARGS.mode
+    ENV["HUPTIME_UNLINK"] = ARGS.unlink
+    ENV["HUPTIME_MULTI"] = str(ARGS.multi).lower()
+    ENV["HUPTIME_REVIVE"] = str(ARGS.revive).lower()
+    ENV["HUPTIME_WAIT"] = str(ARGS.wait).lower()
 
     def do_exec():
         try:
-            os.execvpe(ARGS[0], ARGS, ENV)
+            command = ARGS.command
+            os.execvpe(command[0], command, ENV)
         except Exception as e:
             sys.stderr.write("huptime: %s\n" % str(e))
-            if HUPTIME_DEBUG:
+            if ARGS.debug:
                 traceback.print_exc()
         sys.exit(1)
 
-    if MULTI_COUNT == 1:
+    if ARGS.multi == 1:
         # Execute our new process.
         do_exec()
 
@@ -298,7 +254,7 @@ else:
         # and init scripts, we wait for the children
         # to complete.
         child_pids = []
-        for _ in range(MULTI_COUNT):
+        for _ in range(ARGS.multi):
             parent_pid = os.getpid()
             pid = os.fork()
             if pid == 0:
