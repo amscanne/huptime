@@ -230,7 +230,7 @@ else:
     ENV["HUPTIME_DEBUG"] = str(ARGS.debug).lower()
     ENV["HUPTIME_MODE"] = ARGS.mode
     ENV["HUPTIME_UNLINK"] = ARGS.unlink
-    ENV["HUPTIME_MULTI"] = str(ARGS.multi).lower()
+    ENV["HUPTIME_MULTI"] = 'true' if ARGS.multi > 1 else 'false'
     ENV["HUPTIME_REVIVE"] = str(ARGS.revive).lower()
     ENV["HUPTIME_WAIT"] = str(ARGS.wait).lower()
 
