@@ -25,6 +25,7 @@ import re
 import copy
 import time
 import traceback
+import ctypes
 
 REALPATH = os.path.realpath(sys.argv[0])
 BINDIR = os.path.dirname(REALPATH)
@@ -298,8 +299,22 @@ else:
         # to complete.
         child_pids = []
         for _ in range(MULTI_COUNT):
+            parent_pid = os.getpid()
             pid = os.fork()
             if pid == 0:
+                # We setup a safe procedure here to ensure that the
+                # child will receive a SIGTERM when the parent exits.
+                libc = ctypes.CDLL("libc.so.6")
+                if libc:
+                    # Setup the signal for the parent dying.
+                    libc.prctl(1, signal.SIGTERM)
+
+                    # Check for a race condition. It's possible
+                    # that the parent died between the fork() and
+                    # the prtctl() above; we need to handle that.
+                    if os.getppid() != parent_pid:
+                        sys.exit(1)
+
                 do_exec()
             else:
                 child_pids.append(pid)
