@@ -14,9 +14,7 @@ Basic Example
 In a terminal, run:
 
     huptime --exec python -m SimpleHTTPServer &
-    echo $!
-
-Record the result of the echo, we'll call it $PID.
+    PID=$!
 
 Then, in a second terminal:
 
@@ -50,7 +48,7 @@ Compound this with the fact that many applications consist of many different
 small components (written using different languages and frameworks), and you've
 got yourself a headache.
 
-Because of this complexity, one of first things people have to do is implement
+Because of this complexity, one of the first things people have to do is implement
 a custom load balancing tier and a complex upgrade process. Although this is
 important at a certain scale, it shouldn't be that hard for simple services.
 It's crazy to add a whole new tier when the problem can be solved in a much
