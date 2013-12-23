@@ -82,9 +82,9 @@ parser.add_argument('--version', action='version',
 
 # Mode arguments
 mutex_group = parser.add_mutually_exclusive_group()
-mutex_group.add_argument('-e', '--exec', action='store_true', dest='mexec',
+mutex_group.add_argument('--exec', action='store_true', dest='mexec',
         help='run using exec mode')
-mutex_group.add_argument('-f', '--fork', action='store_true',
+mutex_group.add_argument('--fork', action='store_true',
         help='run using fork mode')
 
 # Action arguments
@@ -97,16 +97,16 @@ mutex_group.add_argument('--stop', action='store_true',
         help='send a SIGTERM signal to a running process')
 
 # Other arguments
-parser.add_argument('-r', '--revive', action='store_true',
+parser.add_argument('--revive', action='store_true',
         help='restart the process on exit')
-parser.add_argument('-w', '--wait', action='store_true',
+parser.add_argument('--wait', action='store_true',
         help='wait for child processes to finish')
-parser.add_argument('-m', '--multi', type=partial(positive, int),
+parser.add_argument('--multi', type=partial(positive, int),
         default=MULTI_COUNT, metavar='N',
         help='run N processes and wait for exit')
-parser.add_argument('-u', '--unlink', metavar='FILE', default='',
+parser.add_argument('--unlink', metavar='FILE', default='',
         help='unlink the given file on restart')
-parser.add_argument('-t', '--timeout', type=partial(positive, float),
+parser.add_argument('--timeout', type=partial(positive, float),
         default=STOP_TIMEOUT, metavar='T',
         help='timeout between TERM and KILL for --stop (default: {0})'.format(
             STOP_TIMEOUT))
