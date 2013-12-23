@@ -37,7 +37,7 @@ Why?
 ----
 
 With continuous deployment, software can be updated dozens, hundreds or even
-thousands of times per day. It critical that service is not interrupted during
+thousands of times per day. It is critical that service is not interrupted during
 upgrades.
 
 In an ideal world, all applications would support a mechanism for doing zero
