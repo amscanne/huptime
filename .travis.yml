@@ -1,0 +1,9 @@
+language: c
+
+compiler:
+    - clang
+    - gcc
+
+install: make build && sudo make install
+
+script: make test
