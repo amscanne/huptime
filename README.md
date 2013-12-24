@@ -1,6 +1,9 @@
 High uptime
 ===========
 
+[![Build Status](https://travis-ci.org/amscanne/huptime.png)](http://travis-ci.org/amscanne/huptime)
+
+
 Huptime is a tool for achieving zero downtime restarts without the need to
 modify your program in any way.
 
