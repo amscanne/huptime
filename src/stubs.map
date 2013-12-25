@@ -34,8 +34,20 @@ GLIBC_2.2.5 {
     local: *;
 };
 
+GLIBC_2.3.2 {
+    global:
+        epoll_create;
+    local: *;
+};
+
 GLIBC_2.0 {
     global:
         exit;
+    local: *;
+};
+
+GLIBC_2.9 {
+    global:
+        epoll_create1;
     local: *;
 };

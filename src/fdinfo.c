@@ -41,6 +41,9 @@ int total_initial = 0;
 /* Total dummy FDs. */
 int total_dummy = 0;
 
+/* Total epoll FDs. */
+int total_epoll = 0;
+
 #define exactly(fn, fd, buf, bytes)     \
 do {                                    \
     for( int _n = 0; _n != bytes; )     \
@@ -109,6 +112,7 @@ info_decode(int pipe, int *fd, fdinfo_t **info)
 
         case TRACKED:
         case DUMMY:
+        case EPOLL:
             /* Should never happen. */
             break;
     }
@@ -148,6 +152,7 @@ info_encode(int pipe, int fd, fdinfo_t* info)
 
         case TRACKED:
         case DUMMY:
+        case EPOLL:
             /* Should never happen. */
             break;
     }

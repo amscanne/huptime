@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <sys/epoll.h>
 
 /* Typedefs for libc functions that we override. */
 typedef int (*bind_t)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
@@ -41,6 +42,8 @@ typedef void (*exit_t)(int status);
 typedef pid_t (*wait_t)(void *status);
 typedef pid_t (*waitpid_t)(pid_t pid, int *status, int options); 
 typedef long (*syscall_t)(long number, ...);
+typedef int (*epoll_create_t)(int size);
+typedef int (*epoll_create1_t)(int flags);
 
 /* A structure containing all functions. */
 typedef struct
@@ -58,6 +61,8 @@ typedef struct
     wait_t wait;
     waitpid_t waitpid;
     syscall_t syscall;
+    epoll_create_t epoll_create;
+    epoll_create1_t epoll_create1;
 } funcs_t;
 
 #endif
