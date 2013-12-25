@@ -45,9 +45,9 @@ ARCH_FLAGS ?= -m64
 else
 ARCH_FLAGS ?= -m32
 endif
-CFLAGS ?= -Wall -fPIC -std=c99 -D_GNU_SOURCE $(OFFSET_FLAGS) $(ARCH_FLAGS)
-CXXFLAGS ?= -Wall -fPIC -D_GNU_SOURCE -Wno-unused-function $(OFFSET_FLAGS) $(ARCH_FLAGS)
-LDFLAGS ?= -shared
+CFLAGS ?= -Wall -fPIC -std=gnu99 -D_GNU_SOURCE $(OFFSET_FLAGS) $(ARCH_FLAGS)
+CXXFLAGS ?= -Wall -fPIC -fno-exceptions -fno-rtti -D_GNU_SOURCE -Wno-unused-function $(OFFSET_FLAGS) $(ARCH_FLAGS)
+LDFLAGS ?= -nostdlib -lc -ldl -lpthread
 
 default: test
 .PHONY: default
@@ -66,7 +66,7 @@ build: $(SOFILE)
 $(SOFILE): $(OBJECTS) src/stubs.map
 	@mkdir -p $(shell dirname $(SOFILE)) 
 	@$(CC) $(CFLAGS) -o $@ $(filter %.o,$^) $(LDFLAGS) \
-	    -ldl -lpthread -shared -Wl,--version-script,src/stubs.map \
+	    -shared -Wl,--version-script,src/stubs.map \
 	    -fvisibility=hidden
 
 %.o: %.c $(INCLUDES)
