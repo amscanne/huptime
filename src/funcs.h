@@ -40,6 +40,7 @@ typedef int (*dup3_t)(int fd, int fd2, int flags);
 typedef void (*exit_t)(int status);
 typedef pid_t (*wait_t)(void *status);
 typedef pid_t (*waitpid_t)(pid_t pid, int *status, int options); 
+typedef long (*syscall_t)(long number, ...);
 
 /* A structure containing all functions. */
 typedef struct
@@ -56,6 +57,7 @@ typedef struct
     exit_t exit;
     wait_t wait;
     waitpid_t waitpid;
+    syscall_t syscall;
 } funcs_t;
 
 #endif

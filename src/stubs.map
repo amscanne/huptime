@@ -30,6 +30,7 @@ GLIBC_2.2.5 {
         dup;
         dup2;
         dup3;
+        syscall;
     local: *;
 };
 

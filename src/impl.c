@@ -39,6 +39,8 @@
 #include <sys/wait.h>
 #include <poll.h>
 
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 typedef enum 
 {
     FORK = 1,
@@ -1269,6 +1271,26 @@ do_waitpid(pid_t pid, int *status, int options)
     return rval;
 }
 
+static long
+do_syscall(long number, long a1, long a2, long a3, long a4, long a5, long a6)
+{
+    /* This is very annoying.
+     * Unfortunately, it looks like uv in nodejs uses
+     * the syscall() function to directly call accept4.
+     * Why? I don't know.
+     * Anyways, this function is used internally within
+     * libc, but we won't intercept any of those calls.
+     * So performance isn't a critical concern here, but
+     * we need to intercept syscall() for node.js. */
+
+    if( unlikely(number == SYS_accept4) )
+    {
+        return do_accept4((int)a1, (struct sockaddr*)a2, (socklen_t*)a3, (int)a4);
+    }
+
+    return libc.syscall(number, a1, a2, a3, a4, a5, a6);
+}
+
 funcs_t impl =
 {
     .bind = do_bind,
@@ -1283,5 +1305,6 @@ funcs_t impl =
     .exit = do_exit,
     .wait = do_wait,
     .waitpid = do_waitpid,
+    .syscall = (syscall_t)do_syscall,
 };
 funcs_t libc;
