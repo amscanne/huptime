@@ -1105,7 +1105,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         if( info != NULL && 
             info->type == BOUND &&
             info->bound.addrlen == addrlen &&
-            !memcmp(addr, (void*)&info->bound.addr, addrlen) )
+            !memcmp(addr, (void*)info->bound.addr, addrlen) )
         {
             DEBUG("Found ghost %d, cloning...", fd);
 
@@ -1184,8 +1184,9 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     /* Save a refresh bound socket info. */
     info->bound.stub_listened = 0;
     info->bound.real_listened = 0;
-    memcpy((void*)&info->bound.addr, (void*)addr, addrlen);
+    info->bound.addr = (struct sockaddr*)malloc(addrlen);
     info->bound.addrlen = addrlen;
+    memcpy((void*)info->bound.addr, (void*)addr, addrlen);
     fd_save(sockfd, info);
 
     /* Success. */

@@ -85,14 +85,12 @@ info_decode(int pipe, int *fd, fdinfo_t **info)
             (*info)->bound.stub_listened = 0;
             (*info)->bound.is_ghost = 1;
 
-            /* Decode the bound address. */
-            (*info)->bound.addrlen = sizeof(struct sockaddr);
-            if( getsockname(
-                    *fd,
-                    &(*info)->bound.addr,
-                    &(*info)->bound.addrlen) < 0 )
+            /* Read the bound address. */
+            exactly(read, pipe, &(*info)->bound.addrlen, sizeof(socklen_t));
+            if( (*info)->bound.addrlen > 0 )
             {
-                return -1;
+                (*info)->bound.addr = malloc((*info)->bound.addrlen);
+                exactly(read, pipe, (*info)->bound.addr, (*info)->bound.addrlen);
             }
             break;
 
@@ -101,6 +99,7 @@ info_decode(int pipe, int *fd, fdinfo_t **info)
             exactly(read, pipe,
                     &(*info)->saved.fd,
                     sizeof((*info)->saved.fd));
+
             /* Read the original offset. */
             exactly(read, pipe,
                     &(*info)->saved.offset,
@@ -131,8 +130,16 @@ info_encode(int pipe, int fd, fdinfo_t* info)
     {
         case BOUND:
             listened = info->bound.real_listened;
+
             /* Write whether it was listened or not. */
             exactly(write, pipe, &listened, sizeof(int));
+
+            /* Write the bound address. */
+            exactly(write, pipe, &info->bound.addrlen, sizeof(socklen_t));
+            if( info->bound.addrlen > 0 )
+            {
+                exactly(write, pipe, info->bound.addr, info->bound.addrlen);
+            }
             break;
 
         case SAVED:
@@ -140,6 +147,7 @@ info_encode(int pipe, int fd, fdinfo_t* info)
             exactly(write, pipe,
                     &info->saved.fd,
                     sizeof(info->saved.fd));
+
             /* Write the original offset. */
             exactly(write, pipe,
                     &info->saved.offset,

@@ -65,8 +65,17 @@ struct boundinfo
     int stub_listened :1;
     int real_listened :1;
     int is_ghost :1;
-    struct sockaddr addr;
+
+    /* We see some higher-level tools passing
+     * more complex address data down. The default
+     * struct sockaddr is only 16 bytes, but java
+     * (for example) will pass a 28 byte structure.
+     * And of course, it's handled just *fine*.
+     * So instead of storing things as a sockaddr,
+     * we just store a copy of the data as passed. */
+    struct sockaddr* addr;
     socklen_t addrlen;
+
 } __attribute__((packed)) boundinfo_t;
 
 typedef
@@ -117,7 +126,7 @@ extern int total_dummy;
 static inline fdinfo_t*
 alloc_info(fdtype_t type)
 {
-    fdinfo_t *info = (fdinfo_t*)malloc(sizeof(fdinfo_t));
+    fdinfo_t *info = (fdinfo_t*)calloc(1, sizeof(fdinfo_t));
     memset(info, 0, sizeof(fdinfo_t));
     info->type = type;
     info->refs = 1;
@@ -146,6 +155,10 @@ free_info(fdinfo_t* info)
     switch( info->type )
     {
         case BOUND:
+            if( info->bound.addr != NULL )
+            {
+                free(info->bound.addr);
+            }
             __sync_fetch_and_add(&total_bound, -1);
             break;
         case TRACKED:
