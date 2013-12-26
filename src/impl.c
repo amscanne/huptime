@@ -204,8 +204,6 @@ impl_exec(void)
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
-    sigaddset(&set, SIGTERM);
-    sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_BLOCK, &set, NULL);
 
     /* Encode extra information.
@@ -476,6 +474,15 @@ impl_init_lock(void)
 static void
 impl_init_thread(void)
 {
+    if( restart_pipe[0] != -1 )
+    {
+        libc.close(restart_pipe[0]);
+    }
+    if( restart_pipe[1] != -1 )
+    {
+        libc.close(restart_pipe[1]);
+    }
+
     /* Create our restart thread.
      *
      * See the note in sighandler() for an explanation
@@ -517,7 +524,6 @@ impl_install_sighandlers(void)
     action.sa_handler = sighandler;
     action.sa_flags = SA_RESTART;
     sigaction(SIGHUP, &action, &old_action);
-    sigaction(SIGUSR2, &action, &old_action);
 
     if( old_action.sa_handler != sighandler )
     {
@@ -758,8 +764,6 @@ impl_init(void)
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
-    sigaddset(&set, SIGTERM);
-    sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_UNBLOCK, &set, NULL);
 
     /* Done. */
@@ -1375,12 +1379,16 @@ do_accept4_retry(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flag
     while (1)
     {
         int rval = do_accept4(sockfd, addr, addrlen, flags);
-        if( rval < 0 && errno == EINTR )
+        if( rval < 0 && (errno == EAGAIN || errno == EINTR) )
         {
             /* Signal interrupted the system call.
              * Many programs cannot handle this cleanly,
              * (hence why they are using huptime). So we
              * simply absorb this error and continue. */
+            if( (flags & SOCK_NONBLOCK) && errno == EAGAIN )
+            {
+                return rval;
+            }
             continue;
         }
 
