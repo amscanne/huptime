@@ -107,12 +107,15 @@ static pthread_mutex_t mutex;
         pthread_mutex_unlock(&mutex);    \
     } while(0)
 
+/* Our restart signal pipe. */
+static int restart_pipe[2] = { -1, -1 };
+
 /* Our core signal handlers. */
 static void* impl_restart_thread(void*);
 void
 sighandler(int signo)
 {
-    /* Fire off a restart thread.
+    /* Notify the restart thread.
      * We have to do this in a separate thread, because
      * we have no guarantees about which thread has been
      * interrupted in order to execute this signal handler.
@@ -121,11 +124,41 @@ sighandler(int signo)
      * fire the restart asycnhronously so that it too can
      * grab locks appropriately. */
     DEBUG("Restart caught.");
-    pthread_t thread;
-    pthread_attr_t thread_attr;
-    pthread_attr_init(&thread_attr);
-    pthread_attr_setdetachstate(&thread_attr, 1);
-    pthread_create(&thread, &thread_attr, impl_restart_thread, NULL);
+
+    if( restart_pipe[1] == -1 )
+    {
+        /* We've already run. */
+        return;
+    }
+
+    while( 1 )
+    {
+        char go = 'R';
+        int rc = write(restart_pipe[1], &go, 1);
+        if( rc == 0 )
+        {
+            /* Wat? Try again. */
+            continue;
+        }
+        else if( rc == 1 )
+        {
+            /* Done. */
+            libc.close(restart_pipe[1]);
+            restart_pipe[1] = -1;
+            break;
+        }
+        else if( rc < 0 && (errno == EAGAIN || errno == EINTR) )
+        {
+            /* Go again. */
+            continue;
+        }
+        else
+        {
+            /* Shit. */
+            DEBUG("Restart pipe fubared!? Sorry.");
+            break;
+        }
+    }
 }
 
 static int
@@ -437,6 +470,58 @@ impl_init_lock(void)
     pthread_mutex_init(&mutex, &mutex_attr);
 }
 
+static void
+impl_init_thread(void)
+{
+    /* Create our restart thread.
+     *
+     * See the note in sighandler() for an explanation
+     * of why the restart must be done in a separate thread.
+     *
+     * We do the thread creation here instead of in the
+     * handler because pthread_create() is not a signal-safe
+     * function to call from the handler. */
+    if( pipe(restart_pipe) < 0 )
+    {
+        DEBUG("Error creating restart pipes: %s", strerror(errno));
+        libc.exit(1);
+    }
+
+    /* Ensure that we have cloexec. */
+    if( fcntl(restart_pipe[0], F_SETFD, FD_CLOEXEC) < 0 ||
+        fcntl(restart_pipe[1], F_SETFD, FD_CLOEXEC) < 0 )
+    {
+        DEBUG("Can't set restart pipe to cloexec?");
+        libc.exit(1);
+    }
+
+    pthread_t thread;
+    pthread_attr_t thread_attr;
+    pthread_attr_init(&thread_attr);
+    pthread_attr_setdetachstate(&thread_attr, 1);
+    if( pthread_create(&thread, &thread_attr, impl_restart_thread, NULL) < 0 )
+    {
+        DEBUG("Error creating restart thread: %s", strerror(errno));
+        libc.exit(1);
+    }
+}
+
+static void
+impl_install_sighandlers(void)
+{
+    struct sigaction action;
+    struct sigaction old_action;
+    action.sa_handler = sighandler;
+    action.sa_flags = SA_RESTART;
+    sigaction(SIGHUP, &action, &old_action);
+    sigaction(SIGUSR2, &action, &old_action);
+
+    if( old_action.sa_handler != sighandler )
+    {
+        DEBUG("Signal handler installed.");
+    }
+}
+
 void
 impl_init(void)
 {
@@ -614,6 +699,7 @@ impl_init(void)
             if( newfd >= 0 )
             {
                 fdinfo_t *saved_info = alloc_info(SAVED);
+
                 if( saved_info != NULL )
                 {
                     saved_info->saved.fd = fd;
@@ -655,24 +741,23 @@ impl_init(void)
     exe_copy = (char*)read_link("/proc/self/exe");
     DEBUG("Saved exe.");
 
-    /* Install our signal handlers.
-     * We also ensure that they are unmasked. This
-     * is important because we may have specifically
-     * masked the signals prior to the exec() below,
-     * to cover the race between program start and 
-     * us installing the appropriate handlers. */
-    struct sigaction action;
-    action.sa_handler = sighandler;
-    action.sa_flags = SA_RESTART;
-    sigaction(SIGHUP, &action, NULL);
-    sigaction(SIGUSR2, &action, NULL);
+    /* Install our signal handlers. */
+    impl_install_sighandlers();
+
+    /* Initialize our thread. */
+    impl_init_thread();
+
+    /* Unblock our signals.
+     * Note that we have specifically masked the
+     * signals prior to the exec() below, to cover
+     * the race between program start and having
+     * installed the appropriate handlers. */
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
     sigaddset(&set, SIGTERM);
     sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_UNBLOCK, &set, NULL);
-    DEBUG("Installed signal handlers.");
 
     /* Done. */
     DEBUG("Initialization complete.");
@@ -908,6 +993,38 @@ impl_restart(void)
 void*
 impl_restart_thread(void* arg)
 {
+    /* Wait for our signal. */
+    while( 1 )
+    {
+        char go = 0;
+        int rc = read(restart_pipe[0], &go, 1);
+        if( rc == 1 )
+        {
+            /* Go. */
+            break;
+        }
+        else if( rc == 0 )
+        {
+            /* Wat? Restart. */
+            DEBUG("Restart pipe closed?!");
+            break;
+        }
+        else if( rc < 0 && (errno == EAGAIN || errno == EINTR) )
+        {
+            /* Keep trying. */
+            continue;
+        }
+        else
+        {
+            /* Real error. Let's restart. */
+            DEBUG("Restart pipe fubared?!");
+            break;
+        }
+    }
+
+    libc.close(restart_pipe[0]);
+    restart_pipe[0] = -1;
+
     /* See note above in sighandler(). */
     impl_restart();
     return arg;
@@ -918,12 +1035,24 @@ do_fork(void)
 {
     pid_t res = (pid_t)-1;
 
+    /* We block SIGHUP during fork().
+     * This is because we communicate our restart
+     * intention via a pipe, and it's conceivable
+     * that between the fork() and impl_init_thread()
+     * the signal handler will be triggered and we'll
+     * end up writing to the restart pipe that is
+     * still connected to the master process. */
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGHUP);
+    sigprocmask(SIG_BLOCK, &set, NULL);
+
     DEBUG("do_fork() ...");
+
     L();
     res = libc.fork();
     if( res == 0 )
     {
-        impl_init_lock();
         if( total_bound == 0 )
         {
             /* We haven't yet bound any sockets. This is
@@ -937,12 +1066,16 @@ do_fork(void)
              * nor exec(), but simply go into a normal exit. */
             master_pid = getpid();
         }
+
+        impl_init_lock();
+        impl_init_thread();
     }
     else
     {
         U();
     }
 
+    sigprocmask(SIG_UNBLOCK, &set, NULL);
     DEBUG("do_fork() => %d", res);
     return res;
 }
@@ -952,6 +1085,15 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 {
     fdinfo_t *info = NULL;
     int rval = -1;
+
+    /* At this point, we can reasonably assume
+     * the program has started up and has installed
+     * whatever signal handlers it wants. We check
+     * that our own signal handler is installed.
+     * If the user doesn't want us to override the
+     * built-in signal handlers, they shouldn't use
+     * huptime. */
+    impl_install_sighandlers();
 
     DEBUG("do_bind(%d, ...) ...", sockfd);
     L();
@@ -963,7 +1105,7 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
         if( info != NULL && 
             info->type == BOUND &&
             info->bound.addrlen == addrlen &&
-            !memcmp(addr, (void*)&info->bound.addr, addrlen) )
+            !memcmp(addr, (void*)info->bound.addr, addrlen) )
         {
             DEBUG("Found ghost %d, cloning...", fd);
 
@@ -1042,8 +1184,9 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     /* Save a refresh bound socket info. */
     info->bound.stub_listened = 0;
     info->bound.real_listened = 0;
-    memcpy((void*)&info->bound.addr, (void*)addr, addrlen);
+    info->bound.addr = (struct sockaddr*)malloc(addrlen);
     info->bound.addrlen = addrlen;
+    memcpy((void*)info->bound.addr, (void*)addr, addrlen);
     fd_save(sockfd, info);
 
     /* Success. */
