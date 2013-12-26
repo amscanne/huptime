@@ -125,7 +125,6 @@ sighandler(int signo)
      * section (i.e. locks held) we have no choice but to
      * fire the restart asycnhronously so that it too can
      * grab locks appropriately. */
-    DEBUG("Restart caught.");
 
     if( restart_pipe[1] == -1 )
     {
