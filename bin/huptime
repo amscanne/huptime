@@ -24,13 +24,11 @@ import signal
 import re
 import copy
 import time
-import traceback
 import ctypes
 import argparse
 import logging
 
 from functools import partial
-import ctypes
 
 REALPATH = os.path.realpath(sys.argv[0])
 BINDIR = os.path.dirname(REALPATH)
@@ -41,55 +39,49 @@ SOFILE = os.path.join(LIBDIR, "huptime.so")
 # The version (injected by the build).
 VERSION = "@(VERSION)"
 
-# Defaults
+# Defaults.
 STOP_TIMEOUT = 10.0
 MULTI_COUNT = 1
 
-# Setup logging
-logging.basicConfig(level=logging.INFO,
-        format="%(module)s %(process)d: %(message)s")
+# Setup logging.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(module)s %(process)d: %(message)s")
 logger = logging.getLogger()
 
-# Configure the command line parser
-
-description="Huptime is a tool for achieving zero downtime restarts."
-
-epilog = """\
+# Configure the command line parser.
+description = "Huptime is a tool for achieving zero downtime restarts."
+epilog = """
 Huptime is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warrant of
 MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE. See the
 GNU General Public License for more details.
 """
-
 parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=description,
         epilog=epilog)
 
-# Parser types
-
-def positive(type, value):
-    ivalue = type(value)
+# Parser types.
+def positive(typefn, value):
+    ivalue = typefn(value)
     if ivalue < 0:
-        raise argparse.ArgumentTypeError("{0} is an invalid positive value".format(value))
+        raise argparse.ArgumentTypeError("{0} is negative".format(ivalue))
     return ivalue
 
-# Miscellaneous arguments
+# Miscellaneous arguments.
 parser.add_argument('-d', '--debug', action='store_true',
-        help='print debug output to stderr.')
+        help='print debug output to stderr')
 parser.add_argument('--version', action='version',
         version='%(prog)s ' + VERSION,
         help='output version information and exit')
 
-# Mode arguments
+# Mode arguments.
 mutex_group = parser.add_mutually_exclusive_group()
-mutex_group.add_argument('--exec', action='store_true', dest='mexec',
-        help='run using exec mode')
 mutex_group.add_argument('--fork', action='store_true',
-        help='run using fork mode')
-
-# Action arguments
-mutex_group = parser.add_mutually_exclusive_group()
+        help='run using fork mode (default)')
+mutex_group.add_argument('--exec', action='store_true',
+        dest='mexec', help='run using exec mode')
 mutex_group.add_argument('--status', action='store_true',
         help='check whether a process is still running')
 mutex_group.add_argument('--restart', action='store_true',
@@ -97,21 +89,20 @@ mutex_group.add_argument('--restart', action='store_true',
 mutex_group.add_argument('--stop', action='store_true',
         help='send a SIGTERM signal to a running process')
 
-# Other arguments
+# Other arguments.
 parser.add_argument('--revive', action='store_true',
         help='restart the process on exit')
 parser.add_argument('--wait', action='store_true',
         help='wait for child processes to finish')
-parser.add_argument('--multi', type=partial(positive, int),
-        default=MULTI_COUNT, metavar='N',
+parser.add_argument('--multi', metavar='N',
+        type=partial(positive, int), default=None,
         help='run N processes and wait for exit')
 parser.add_argument('--unlink', metavar='FILE', default='',
         help='unlink the given file on restart')
 parser.add_argument('--timeout', type=partial(positive, float),
         default=STOP_TIMEOUT, metavar='T',
-        help='timeout between TERM and KILL for --stop (default: {0})'.format(
-            STOP_TIMEOUT))
-parser.add_argument('command', nargs='+',
+        help='timeout between TERM and KILL')
+parser.add_argument('command', nargs=argparse.REMAINDER,
         help='the command to be executed')
 
 # Parse all options.
@@ -119,6 +110,10 @@ ARGS = parser.parse_args()
 ARGS.mode = 'fork' if ARGS.fork else ('exec' if ARGS.mexec else 'fork')
 if ARGS.debug:
     logger.setLevel(logging.DEBUG)
+
+if not ARGS.command:
+    parser.print_help()
+    sys.exit(1)
 
 if ARGS.status or ARGS.restart or ARGS.stop:
 
@@ -128,7 +123,6 @@ if ARGS.status or ARGS.restart or ARGS.stop:
     exact_matches = []
     inter_matches = []
 
-    command = ARGS.command
     for pid in os.listdir("/proc"):
         try:
             pid = int(pid)
@@ -138,12 +132,15 @@ if ARGS.status or ARGS.restart or ARGS.stop:
             cmd = open("/proc/%d/cmdline" % pid, 'r').read().split("\0")
 
             # An exact match.
-            if len(cmd) >= len(command) and cmd[:len(command)] == command:
+            if (len(cmd) >= len(ARGS.command) and
+                cmd[:len(ARGS.command)] == ARGS.command):
                 exact_matches.append(pid)
 
             # Interpreter match.
-            elif (len(cmd) >= 1+len(command) and cmd[1:1+len(command)] == command) or \
-                 (len(cmd) >= 2+len(command) and cmd[2:2+len(command)] == command):
+            elif ((len(cmd) >= 1+len(ARGS.command) and
+                   cmd[1:1+len(ARGS.command)] == ARGS.command) or
+                 (len(cmd) >= 2+len(ARGS.command) and
+                  cmd[2:2+len(ARGS.command)] == ARGS.command)):
                 inter_matches.append(pid)
         except KeyboardInterrupt:
             sys.exit(1)
@@ -170,7 +167,7 @@ if ARGS.status or ARGS.restart or ARGS.stop:
     for pid in active_pids:
         try:
             if ARGS.status:
-                logger.info(pid)
+                print pid
             elif ARGS.restart:
                 logger.debug("Restarting PID %d..." % pid)
                 os.kill(pid, signal.SIGHUP)
@@ -224,28 +221,26 @@ else:
     logger.debug("Unlink is %s." % ARGS.unlink)
     logger.debug("Multi is %s." % ARGS.multi)
     logger.debug("Revive is %s." % ARGS.revive)
-    logger.debug("Wait is %s." % ARGS.wait)
 
     ENV = copy.copy(os.environ)
     ENV["LD_PRELOAD"] = SOFILE
     ENV["HUPTIME_DEBUG"] = str(ARGS.debug).lower()
     ENV["HUPTIME_MODE"] = ARGS.mode
     ENV["HUPTIME_UNLINK"] = ARGS.unlink
-    ENV["HUPTIME_MULTI"] = 'true' if ARGS.multi > 1 else 'false'
+    ENV["HUPTIME_MULTI"] = 'true' if ARGS.multi is not None else 'false'
     ENV["HUPTIME_REVIVE"] = str(ARGS.revive).lower()
     ENV["HUPTIME_WAIT"] = str(ARGS.wait).lower()
 
     def do_exec():
         try:
-            command = ARGS.command
-            os.execvpe(command[0], command, ENV)
+            os.execvpe(ARGS.command[0], ARGS.command, ENV)
         except Exception as e:
             logger.error(str(e))
             if ARGS.debug:
                 logger.exception('Error while launching a new process')
         sys.exit(1)
 
-    if ARGS.multi == 1:
+    if ARGS.multi is None:
         # Execute our new process.
         do_exec()
 
