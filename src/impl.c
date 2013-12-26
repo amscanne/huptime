@@ -506,6 +506,22 @@ impl_init_thread(void)
     }
 }
 
+static void
+impl_install_sighandlers(void)
+{
+    struct sigaction action;
+    struct sigaction old_action;
+    action.sa_handler = sighandler;
+    action.sa_flags = SA_RESTART;
+    sigaction(SIGHUP, &action, &old_action);
+    sigaction(SIGUSR2, &action, &old_action);
+
+    if( old_action.sa_handler != sighandler )
+    {
+        DEBUG("Signal handler installed.");
+    }
+}
+
 void
 impl_init(void)
 {
@@ -725,27 +741,23 @@ impl_init(void)
     exe_copy = (char*)read_link("/proc/self/exe");
     DEBUG("Saved exe.");
 
+    /* Install our signal handlers. */
+    impl_install_sighandlers();
+
     /* Initialize our thread. */
     impl_init_thread();
 
-    /* Install our signal handlers.
-     * We also ensure that they are unmasked. This
-     * is important because we may have specifically
-     * masked the signals prior to the exec() below,
-     * to cover the race between program start and 
-     * us installing the appropriate handlers. */
-    struct sigaction action;
-    action.sa_handler = sighandler;
-    action.sa_flags = SA_RESTART;
-    sigaction(SIGHUP, &action, NULL);
-    sigaction(SIGUSR2, &action, NULL);
+    /* Unblock our signals.
+     * Note that we have specifically masked the
+     * signals prior to the exec() below, to cover
+     * the race between program start and having
+     * installed the appropriate handlers. */
     sigset_t set;
     sigemptyset(&set);
     sigaddset(&set, SIGHUP);
     sigaddset(&set, SIGTERM);
     sigaddset(&set, SIGUSR2);
     sigprocmask(SIG_UNBLOCK, &set, NULL);
-    DEBUG("Installed signal handlers.");
 
     /* Done. */
     DEBUG("Initialization complete.");
@@ -1073,6 +1085,15 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 {
     fdinfo_t *info = NULL;
     int rval = -1;
+
+    /* At this point, we can reasonably assume
+     * the program has started up and has installed
+     * whatever signal handlers it wants. We check
+     * that our own signal handler is installed.
+     * If the user doesn't want us to override the
+     * built-in signal handlers, they shouldn't use
+     * huptime. */
+    impl_install_sighandlers();
 
     DEBUG("do_bind(%d, ...) ...", sockfd);
     L();
