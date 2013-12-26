@@ -54,6 +54,12 @@ typedef enum
     /* DUMMY FDs hold the dummy sockets used for simulating
      * accept(), select() etc. during graceful shutdown. */
     DUMMY = 4,
+
+    /* EPOLL FDs contain information about registered FDs.
+     * If we ever register a server socket on an epoll FD,
+     * then we need to swap out the dummy socket. */
+    EPOLL = 5,
+
 } fdtype_t;
 
 struct fdinfo;
@@ -102,6 +108,11 @@ struct dummyinfo
     int client;
 } dummyinfo_t;
 
+typedef
+struct epollinfo
+{
+} epollinfo_t;
+
 struct fdinfo
 {
     fdtype_t type;
@@ -113,6 +124,7 @@ struct fdinfo
         savedinfo_t saved;
         initialinfo_t initial;
         dummyinfo_t dummy;
+        epollinfo_t epoll;
     };
 };
 
@@ -122,6 +134,7 @@ extern int total_tracked;
 extern int total_saved;
 extern int total_initial;
 extern int total_dummy;
+extern int total_epoll;
 
 static inline fdinfo_t*
 alloc_info(fdtype_t type)
@@ -143,6 +156,9 @@ alloc_info(fdtype_t type)
             break;
         case DUMMY:
             __sync_fetch_and_add(&total_dummy, 1);
+            break;
+        case EPOLL:
+            __sync_fetch_and_add(&total_epoll, 1);
             break;
     }
     return info;
@@ -173,6 +189,9 @@ free_info(fdinfo_t* info)
             break;
         case DUMMY:
             __sync_fetch_and_add(&total_dummy, -1);
+            break;
+        case EPOLL:
+            __sync_fetch_and_add(&total_epoll, -1);
             break;
     }
     free(info);

@@ -39,6 +39,8 @@
 #include <sys/wait.h>
 #include <poll.h>
 
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 typedef enum 
 {
     FORK = 1,
@@ -351,6 +353,7 @@ info_close(int fd, fdinfo_t* info)
     {
         case BOUND:
         case TRACKED:
+        case EPOLL:
             if( info->type == BOUND && revive_mode == TRUE )
             {
                 /* We don't close bound sockets in revive mode.
@@ -894,7 +897,7 @@ impl_exit_start(void)
             unlink(to_unlink);
         }
 
-        /* Neuther this process. */
+        /* Neuter this process. */
         for( int fd = 0; fd < fd_limit(); fd += 1 )
         {
             fdinfo_t* info = fd_lookup(fd);
@@ -932,6 +935,17 @@ impl_exit_start(void)
                     int dummy_server = impl_dummy_server();
                     if( dummy_server >= 0 )
                     {
+                        /* Remove the descriptor in any epoll FDs. */
+                        for( int efd = 0; efd < fd_limit(); efd += 1 )
+                        {
+                            fdinfo_t* einfo = fd_lookup(efd);
+                            if( einfo != NULL && einfo->type == EPOLL )
+                            {
+                                struct epoll_event no_event;
+                                epoll_ctl(efd, EPOLL_CTL_DEL, fd, &no_event);
+                            }
+                        }
+
                         info->bound.is_ghost = 1;
                         do_dup2(dummy_server, fd);
                         DEBUG("Replaced FD %d with dummy.", fd);
@@ -1298,14 +1312,17 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 
     U();
 
-    /* Wait for activity on the socket. */
-    struct pollfd poll_info;
-    poll_info.fd = sockfd;
-    poll_info.events = POLLIN;
-    poll_info.revents = 0;
-    if( poll(&poll_info, 1, -1) < 0 )
+    if( !(flags & SOCK_NONBLOCK) )
     {
-        return -1;
+        /* Wait for activity on the socket. */
+        struct pollfd poll_info;
+        poll_info.fd = sockfd;
+        poll_info.events = POLLIN;
+        poll_info.revents = 0;
+        if( poll(&poll_info, 1, -1) < 0 )
+        {
+            return -1;
+        }
     }
 
     L();
@@ -1317,7 +1334,8 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
          * to exiting in this period. This will
          * circle around a return a dummy descriptor. */
         U();
-        errno = EINTR;
+        DEBUG("do_accept4(%d, ...) => -1 (interrupted)", sockfd);
+        errno = flags & SOCK_NONBLOCK ? EAGAIN : EINTR;
         return -1;
     }
 
@@ -1342,15 +1360,12 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     {
         /* An error occured, nothing to track. */
         dec_ref(new_info);
-
-        if( errno == EWOULDBLOCK && !(flags & SOCK_NONBLOCK) )
-        {
-        }
     }
 
     U();
-    DEBUG("do_accept4(%d, ...) => %d (tracked %d)",
-        sockfd, rval, total_tracked);
+    DEBUG("do_accept4(%d, ...) => %d (tracked %d) %s",
+        sockfd, rval, total_tracked,
+        rval == -1 ? strerror(errno) : "");
     return rval;
 }
 
@@ -1360,7 +1375,7 @@ do_accept4_retry(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flag
     while (1)
     {
         int rval = do_accept4(sockfd, addr, addrlen, flags);
-        if( rval < 0 && (errno == EAGAIN || errno == EINTR) )
+        if( rval < 0 && errno == EINTR )
         {
             /* Signal interrupted the system call.
              * Many programs cannot handle this cleanly,
@@ -1412,6 +1427,44 @@ do_waitpid(pid_t pid, int *status, int options)
     return rval;
 }
 
+static long
+do_syscall(long number, long a1, long a2, long a3, long a4, long a5, long a6)
+{
+    /* This is very annoying.
+     * Unfortunately, it looks like uv in nodejs uses
+     * the syscall() function to directly call accept4.
+     * Why? I don't know.
+     * Anyways, this function is used internally within
+     * libc, but we won't intercept any of those calls.
+     * So performance isn't a critical concern here, but
+     * we need to intercept syscall() for node.js. */
+
+    if( unlikely(number == SYS_accept4) )
+    {
+        return do_accept4((int)a1, (struct sockaddr*)a2, (socklen_t*)a3, (int)a4);
+    }
+
+    return libc.syscall(number, a1, a2, a3, a4, a5, a6);
+}
+
+static int
+do_epoll_create1(int flags)
+{
+    int rval = libc.epoll_create1(flags);
+    if( rval >= 0 )
+    {
+        fdinfo_t* info = alloc_info(EPOLL);
+        fd_save(rval, info);
+    }
+    return rval;
+}
+
+static int
+do_epoll_create(int size)
+{
+    return do_epoll_create1(0);
+}
+
 funcs_t impl =
 {
     .bind = do_bind,
@@ -1426,5 +1479,8 @@ funcs_t impl =
     .exit = do_exit,
     .wait = do_wait,
     .waitpid = do_waitpid,
+    .syscall = (syscall_t)do_syscall,
+    .epoll_create = do_epoll_create,
+    .epoll_create1 = do_epoll_create1,
 };
 funcs_t libc;

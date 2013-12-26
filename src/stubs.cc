@@ -76,6 +76,9 @@ setup(void)
     GET_LIBC_FUNCTION(exit);
     GET_LIBC_FUNCTION(wait);
     GET_LIBC_FUNCTION(waitpid);
+    GET_LIBC_FUNCTION(syscall);
+    GET_LIBC_FUNCTION(epoll_create);
+    GET_LIBC_FUNCTION(epoll_create1);
     #undef GET_LIBC_FUNCTION
 
     impl_init();
@@ -87,85 +90,91 @@ extern "C"
 static int
 stub_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
 {
-    setup();
     return impl.bind(sockfd, addr, addrlen);
 }
 
 static int
 stub_listen(int sockfd, int backlog)
 {
-    setup();
     return impl.listen(sockfd, backlog);
 }
 
 static int
 stub_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
-    setup();
     return impl.accept(sockfd, addr, addrlen);
 }
 
 static int
 stub_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
-    setup();
     return impl.accept4(sockfd, addr, addrlen, flags);
 }
 
 static int
 stub_close(int fd)
 {
-    setup();
     return impl.close(fd);
 }
 
 static pid_t
 stub_fork()
 {
-    setup();
     return impl.fork();
 }
 
 static int
 stub_dup(int fd)
 {
-    setup();
     return impl.dup(fd);
 }
 
 static int
 stub_dup2(int fd, int fd2)
 {
-    setup();
     return impl.dup2(fd, fd2);
 }
 
 static int
 stub_dup3(int fd, int fd2, int flags)
 {
-    setup();
     return impl.dup3(fd, fd2, flags);
 }
 
 static void
 stub_exit(int status)
 {
-    setup();
     impl.exit(status);
 }
 
 static pid_t
 stub_wait(void *status)
 {
-    setup();
     return impl.wait(status);
 }
 
 static pid_t
 stub_waitpid(pid_t pid, int *status, int options)
 {
-    setup();
     return impl.waitpid(pid, status, options);
+}
+
+static int
+stub_syscall(int number, long a1, long a2, long a3, long a4, long a5, long a6)
+{
+    return impl.syscall(number, a1, a2, a3, a4, a5, a6);
+}
+
+static int
+stub_epoll_create(int size)
+{
+    return impl.epoll_create(size);
+}
+
+static int
+stub_epoll_create1(int flags)
+{
+    return impl.epoll_create1(flags);
 }
 
 /* Exports name as aliasname in .dynsym. */
@@ -214,5 +223,11 @@ GLIBC_DEFAULT(wait)
 GLIBC_VERSION2(wait, 2, 2, 5)
 GLIBC_DEFAULT(waitpid)
 GLIBC_VERSION2(waitpid, 2, 2, 5)
+GLIBC_DEFAULT(syscall)
+GLIBC_VERSION2(syscall, 2, 2, 5)
+GLIBC_DEFAULT(epoll_create)
+GLIBC_VERSION2(epoll_create, 2, 3, 2)
+GLIBC_DEFAULT(epoll_create1)
+GLIBC_VERSION(epoll_create1, 2, 9)
 
 }
