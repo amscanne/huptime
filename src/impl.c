@@ -230,8 +230,20 @@ impl_exec(void)
     for( int fd = 0; fd < fd_limit(); fd += 1 )
     {
         fdinfo_t *info = fd_lookup(fd);
-        if( info != NULL &&
-           (info->type == BOUND || info->type == SAVED) )
+
+        int to_be_saved = (info != NULL &&
+            (info->type == BOUND || info->type == SAVED));
+
+        if( fd == 2 || to_be_saved )
+        {
+            /* I can't believe this is necessary.
+             * When node.js starts up, it seems to run over
+             * an arbitrary number of file descriptors and
+             * mark them all CLO_EXEC. That is so messed up.
+             * That's some seriously broken behaviour. */
+            fcntl(fd, F_SETFD, 0);
+        }
+        if( to_be_saved )
         {
             if( info_encode(pipes[1], fd, info) < 0 )
             {
@@ -977,7 +989,6 @@ impl_exit_start(void)
                 else
                 {
                     DEBUG("I'm the parent.");
-                    master_pid = child;
                 }
                 break;
 
