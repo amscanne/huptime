@@ -168,6 +168,12 @@ do_dup(int fd)
     int rval = -1;
     fdinfo_t *info = NULL;
 
+    if( fd < 0 )
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
     DEBUG("do_dup(%d, ...) ...", fd);
     L();
     info = fd_lookup(fd);
@@ -394,6 +400,12 @@ do_dup3(int fd, int fd2, int flags)
     fdinfo_t *info = NULL;
     fdinfo_t *info2 = NULL;
 
+    if( fd < 0 || fd2 < 0 )
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
     DEBUG("do_dup3(%d, %d, ...) ...", fd, fd2);
     L();
     if( fd == fd2 )
@@ -446,6 +458,12 @@ do_close(int fd)
 {
     int rval = -1;
     fdinfo_t *info = NULL;
+
+    if( fd < 0 )
+    {
+        errno = EINVAL;
+        return -1;
+    }
 
     DEBUG("do_close(%d, ...) ...", fd);
     L();
@@ -1114,6 +1132,12 @@ do_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     fdinfo_t *info = NULL;
     int rval = -1;
 
+    if( sockfd < 0 )
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
     /* At this point, we can reasonably assume
      * the program has started up and has installed
      * whatever signal handlers it wants. We check
@@ -1229,6 +1253,12 @@ do_listen(int sockfd, int backlog)
     int rval = -1;
     fdinfo_t *info = NULL;
 
+    if( sockfd < 0 )
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
     DEBUG("do_listen(%d, ...) ...", sockfd);
     L();
     info = fd_lookup(sockfd);
@@ -1287,6 +1317,12 @@ do_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     int rval = -1;
     fdinfo_t *info = NULL;
+
+    if( sockfd < 0 )
+    {
+        errno = EINVAL;
+        return -1;
+    }
 
     DEBUG("do_accept4(%d, ...) ...", sockfd);
     L();
