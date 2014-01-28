@@ -41,6 +41,16 @@
 
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
+#ifndef SYS_accept4
+#ifdef ARCH64BIT
+#define SYS_accept4 (288)
+#elif ARCH32BIT
+#define SYS_accept4 (0x40000000 + 288)
+#else
+#error "Unknown architecture?"
+#endif
+#endif
+
 typedef enum 
 {
     FORK = 1,

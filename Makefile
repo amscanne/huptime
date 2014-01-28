@@ -25,6 +25,21 @@ DEBBUILD := debbuild
 INSTALL_DIR := install -m 0755 -d
 INSTALL_BIN := install -m 0755
 
+ifeq ($(ARCH_TARGET),i386)
+ARCH_TARGET = x86_32
+endif
+ifeq ($(ARCH_TARGET),i486)
+ARCH_TARGET = x86_32
+endif
+ifeq ($(ARCH_TARGET),i586)
+ARCH_TARGET = x86_32
+endif
+ifeq ($(ARCH_TARGET),i686)
+ARCH_TARGET = x86_32
+endif
+ifeq ($(ARCH_TARGET),amd64)
+ARCH_TARGET = x86_64
+endif
 ifeq ($(ARCH_TARGET),x86_32)
 RPM_ARCH_OPT ?= --target=i386
 DEB_ARCH_OPT ?= i386
@@ -41,9 +56,9 @@ CC := gcc
 CXX := g++
 OFFSET_FLAGS ?= -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64
 ifeq ($(ARCH_TARGET),x86_64)
-ARCH_FLAGS ?= -m64
+ARCH_FLAGS ?= -m64 -DARCH64BIT
 else
-ARCH_FLAGS ?= -m32
+ARCH_FLAGS ?= -m32 -DARCH32BIT
 endif
 CFLAGS ?= -Wall -fPIC -std=gnu99 -D_GNU_SOURCE $(OFFSET_FLAGS) $(ARCH_FLAGS)
 CXXFLAGS ?= -Wall -fPIC -fno-exceptions -fno-rtti -D_GNU_SOURCE -Wno-unused-function $(OFFSET_FLAGS) $(ARCH_FLAGS)
