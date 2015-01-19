@@ -63,6 +63,12 @@ unmodified applications.
 How do I install it?
 --------------------
 
+Building this package gnerally requires:
+* make
+* gcc and g++
+* python
+* rpmbuild (optional) and dpkg (optional)
+
 Clone the repo:
 
     git clone http://github.com/amscanne/huptime
